@@ -37,7 +37,7 @@ try {
 # 3. DOWNLOAD GOTO
 Write-Host "📥 Baixando GoTo Meeting..." -ForegroundColor Yellow
 try {
-    Invoke-WebRequest "$GitHubBase/Programas/GoToMeeting.exe" -OutFile "$ProgramasDir\GoToMeeting.exe" -ErrorAction Stop
+    Invoke-WebRequest "$GitHubBase/Programas/GoToSetup.exe" -OutFile "$ProgramasDir\GoToSetup.exe" -ErrorAction Stop
     Write-Host "   ✅ GoTo Meeting baixado" -ForegroundColor Green
 } catch {
     Write-Host "   ❌ Erro ao baixar GoTo: $($_.Exception.Message)" -ForegroundColor Red
@@ -120,4 +120,5 @@ Write-Host "===============================================" -ForegroundColor Cy
 Write-Host ""
 
 # Aguardar entrada do usuário
+
 Read-Host "Pressione Enter para sair"
