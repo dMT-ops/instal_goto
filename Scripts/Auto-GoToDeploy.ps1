@@ -73,7 +73,7 @@ foreach ($computer in $computers) {
             # Instalação silenciosa com PsExec
             $process = Start-Process -FilePath "$ToolsDir\PsExec.exe" -ArgumentList @(
                 "\\$computer", "-s", "-h", "-d", "-c", "-f",
-                "`"$ProgramasDir\GoToMeeting.exe`"", "/S"
+                "`"$ProgramasDir\GoToSetup.exe`"", "/S"
             ) -PassThru -NoNewWindow -Wait -ErrorAction Stop
             
             if ($process.ExitCode -eq 0) {
@@ -122,3 +122,4 @@ Write-Host ""
 # Aguardar entrada do usuário
 
 Read-Host "Pressione Enter para sair"
+
