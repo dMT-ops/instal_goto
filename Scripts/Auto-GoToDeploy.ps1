@@ -25,13 +25,13 @@ Write-Host "📁 Preparando ambiente..." -ForegroundColor Yellow
 New-Item -Path $ToolsDir, $ProgramasDir -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
 
 # 2. DOWNLOAD PSExec
-Write-Host "📥 Baixando PsExec..." -ForegroundColor Yellow
-try {
-    Invoke-WebRequest "$GitHubBase/Tools/PsExec.exe" -OutFile "$ToolsDir\PsExec.exe" -ErrorAction Stop
-    Write-Host "   ✅ PsExec baixado" -ForegroundColor Green
-} catch {
-    Write-Host "   ❌ Erro ao baixar PsExec: $($_.Exception.Message)" -ForegroundColor Red
-    exit
+ # Write-Host "📥 Baixando PsExec..." -ForegroundColor Yellow
+# try {
+   # Invoke-WebRequest "$GitHubBase/Tools/PsExec.exe" -OutFile "$ToolsDir\PsExec.exe" -ErrorAction Stop
+   # Write-Host "   ✅ PsExec baixado" -ForegroundColor Green
+# } catch {
+   # Write-Host "   ❌ Erro ao baixar PsExec: $($_.Exception.Message)" -ForegroundColor Red
+   # exit
 }
 
 # 3. DOWNLOAD GOTO
@@ -122,4 +122,5 @@ Write-Host ""
 # Aguardar entrada do usuário
 
 Read-Host "Pressione Enter para sair"
+
 
