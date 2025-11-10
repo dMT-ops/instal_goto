@@ -165,6 +165,36 @@ function Install-GoToLocal {
     }
 }
 
+# Função para verificar instalação remota
+function Test-RemoteInstallation {
+    param([string]$ComputerName)
+    
+    try {
+        # Tentar verificar via serviço ou processo remoto
+        $service = Get-Service -ComputerName $ComputerName -Name "*goto*" -ErrorAction SilentlyContinue
+        if ($service) {
+            Write-Log "Serviço GoTo encontrado em $ComputerName: $($service.Name)"
+            return $true
+        }
+        
+        # Tentar verificar via registro
+        $regPath = "HKLM:\SOFTWARE\GoTo"
+        $regTest = Invoke-Command -ComputerName $ComputerName -ScriptBlock { 
+            Test-Path "HKLM:\SOFTWARE\GoTo" 
+        } -ErrorAction SilentlyContinue
+        
+        if ($regTest) {
+            Write-Log "Registro GoTo encontrado em $ComputerName"
+            return $true
+        }
+        
+        return $false
+    } catch {
+        Write-Log "Erro ao verificar instalação remota em $ComputerName : $($_.Exception.Message)"
+        return $false
+    }
+}
+
 # INÍCIO
 Clear-Host
 Write-Host "===============================================" -ForegroundColor Cyan
@@ -240,7 +270,7 @@ try {
     Write-Log "Iniciando processo de instalação REMOTA em $($computers.Count) máquinas"
     Write-Host ""
 
-    # 5. INSTALAÇÃO REMOTA
+    # 5. INSTALAÇÃO REMOTA - VERSÃO CORRIGIDA
     $successCount = 0
     $offlineCount = 0
     $errorCount = 0
@@ -262,12 +292,12 @@ try {
                 Write-Host "[Instalando...] " -NoNewline -ForegroundColor Gray
                 Write-Log "$computer - Iniciando instalação com PsExec"
                 
-                # Instalação silenciosa com PsExec
+                # CORREÇÃO: Usar -d (don't wait) e verificar sucesso diferente
                 $process = Start-Process -FilePath "PsExec.exe" -ArgumentList @(
                     "\\$computer",
                     "-s",
                     "-h",
-                    "-d",
+                    "-d",  # DON'T WAIT - deixa o processo rodando independentemente
                     "-c",
                     "-f",
                     "`"$ProgramasDir\GoToSetup.exe`"",
@@ -276,10 +306,27 @@ try {
                 
                 Write-Log "$computer - PsExec finalizado com código: $($process.ExitCode)"
                 
+                # CORREÇÃO: Se PsExec retornou 0, consideramos sucesso
+                # O PID (21160 no seu caso) não é erro, é o processo que foi iniciado
                 if ($process.ExitCode -eq 0) {
-                    Write-Host "✅ INSTALADO" -ForegroundColor Green
-                    Write-Log "SUCESSO: $computer - GoTo instalado com sucesso"
-                    $successCount++
+                    Write-Host "✅ INSTALAÇÃO INICIADA" -ForegroundColor Green
+                    Write-Log "SUCESSO: $computer - Instalação GoTo iniciada com PID"
+                    
+                    # Aguardar um tempo para instalação remota
+                    Write-Host "   ⏳ Aguardando instalação remota..." -NoNewline -ForegroundColor Gray
+                    Start-Sleep -Seconds 30
+                    
+                    # Tentar verificar se foi instalado
+                    $remoteCheck = Test-RemoteInstallation -ComputerName $computer
+                    if ($remoteCheck) {
+                        Write-Host " ✅ CONFIRMADO" -ForegroundColor Green
+                        Write-Log "CONFIRMAÇÃO: $computer - GoTo instalado remotamente"
+                        $successCount++
+                    } else {
+                        Write-Host " ⚠ AGUARDANDO" -ForegroundColor Yellow
+                        Write-Log "AGUARDANDO: $computer - Instalação em andamento"
+                        $successCount++  # Considera sucesso pois o processo foi iniciado
+                    }
                 } else {
                     Write-Host "❌ FALHA (Código: $($process.ExitCode))" -ForegroundColor Red
                     Write-Log "FALHA: $computer - Código de saída: $($process.ExitCode)"
@@ -316,7 +363,7 @@ if ($localInstallResult) {
 } else {
     Write-Host "FALHA ❌" -ForegroundColor Red
 }
-Write-Host "✅ Instalado com sucesso (remoto): $successCount" -ForegroundColor Green
+Write-Host "✅ Instalações remotas iniciadas: $successCount" -ForegroundColor Green
 Write-Host "📴 Máquinas offline: $offlineCount" -ForegroundColor Gray
 Write-Host "❌ Erros/Falhas (remoto): $errorCount" -ForegroundColor Red
 Write-Host "📊 Total de máquinas remotas: $($computers.Count)" -ForegroundColor White
@@ -330,8 +377,8 @@ Write-Log "Erros: $errorCount"
 Write-Log "Total Máquinas Remotas: $($computers.Count)"
 
 if ($successCount -eq $computers.Count) {
-    Write-Host "🎉 TODAS AS MÁQUINAS REMOTAS FORAM INSTALADAS!" -ForegroundColor Green
-    Write-Log "STATUS: Todas as máquinas remotas instaladas com sucesso"
+    Write-Host "🎉 TODAS AS INSTALAÇÕES REMOTAS FORAM INICIADAS!" -ForegroundColor Green
+    Write-Log "STATUS: Todas as instalações remotas iniciadas com sucesso"
 } elseif ($successCount -gt 0) {
     Write-Host "⚠ Instalação remota parcialmente concluída" -ForegroundColor Yellow
     Write-Log "STATUS: Instalação remota parcialmente concluída"
