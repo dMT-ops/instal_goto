@@ -165,7 +165,7 @@ function Install-GoToLocal {
     }
 }
 
-# Função para verificar instalação remota
+# Função para verificar instalação remota - CORRIGIDA
 function Test-RemoteInstallation {
     param([string]$ComputerName)
     
@@ -173,12 +173,11 @@ function Test-RemoteInstallation {
         # Tentar verificar via serviço ou processo remoto
         $service = Get-Service -ComputerName $ComputerName -Name "*goto*" -ErrorAction SilentlyContinue
         if ($service) {
-            Write-Log "Serviço GoTo encontrado em $ComputerName: $($service.Name)"
+            Write-Log "Serviço GoTo encontrado em $ComputerName : $($service.Name)"
             return $true
         }
         
-        # Tentar verificar via registro
-        $regPath = "HKLM:\SOFTWARE\GoTo"
+        # Tentar verificar via registro - CORREÇÃO AQUI
         $regTest = Invoke-Command -ComputerName $ComputerName -ScriptBlock { 
             Test-Path "HKLM:\SOFTWARE\GoTo" 
         } -ErrorAction SilentlyContinue
