@@ -135,7 +135,7 @@ function Install-GoToLocal {
     }
 }
 
-# Função para transferir arquivos para máquinas remotas (ÁREA DE TRABALHO)
+# Função para transferir arquivos para máquinas remotas (ÁREA DE TRABALHO CORRETA)
 function Transfer-FilesToRemote {
     param([string]$ComputerName)
     
@@ -152,39 +152,37 @@ function Transfer-FilesToRemote {
         Write-Host "   📤 Copiando para Programas..." -ForegroundColor Gray
         Copy-Item "$ProgramasDir\GoToSetup.exe" "$remoteProgramasDir\GoToSetup.exe" -Force -ErrorAction Stop
         
-        # AGORA COPIAR PARA A ÁREA DE TRABALHO
+        # AGORA COPIAR PARA A ÁREA DE TRABALHO (MÉTODO SIMPLIFICADO)
         Write-Host "   🖥️  Copiando para Área de Trabalho..." -ForegroundColor Gray
         
-        # Encontrar a pasta Desktop/Área de Trabalho
+        # Tentar caminhos diretos da Área de Trabalho
         $desktopPaths = @(
             "\\$ComputerName\C$\Users\Public\Desktop",
-            "\\$ComputerName\C$\Users\*\Desktop",
-            "\\$ComputerName\C$\Documents and Settings\All Users\Desktop"
+            "\\$ComputerName\C$\Users\Administrator\Desktop", 
+            "\\$ComputerName\C$\Windows\System32\config\systemprofile\Desktop"
         )
         
-        $desktopFound = $false
+        $desktopCopied = $false
         
         foreach ($desktopPath in $desktopPaths) {
-            $resolvedPaths = Get-ChildItem -Path $desktopPath -ErrorAction SilentlyContinue
-            foreach ($path in $resolvedPaths) {
-                if (Test-Path $path.FullName) {
-                    $desktopDir = $path.FullName
-                    Copy-Item "$ProgramasDir\GoToSetup.exe" "$desktopDir\GoToSetup.exe" -Force -ErrorAction SilentlyContinue
-                    
-                    if (Test-Path "$desktopDir\GoToSetup.exe") {
+            if (Test-Path $desktopPath -ErrorAction SilentlyContinue) {
+                try {
+                    Copy-Item "$ProgramasDir\GoToSetup.exe" "$desktopPath\GoToSetup.exe" -Force -ErrorAction Stop
+                    if (Test-Path "$desktopPath\GoToSetup.exe") {
                         Write-Host "   ✅ Copiado para Área de Trabalho" -ForegroundColor Green
-                        Write-Log "SUCESSO: Arquivo copiado para Área de Trabalho em $ComputerName"
-                        $desktopFound = $true
+                        Write-Log "SUCESSO: Arquivo copiado para $desktopPath"
+                        $desktopCopied = $true
                         break
                     }
+                } catch {
+                    Write-Log "AVISO: Não foi possível copiar para $desktopPath - $($_.Exception.Message)"
                 }
             }
-            if ($desktopFound) { break }
         }
         
         # Verificar se pelo menos o arquivo foi copiado para Programas
         if (Test-Path "$remoteProgramasDir\GoToSetup.exe") {
-            if (-not $desktopFound) {
+            if (-not $desktopCopied) {
                 Write-Host "   ⚠ Copiado apenas para Programas" -ForegroundColor Yellow
                 Write-Log "AVISO: Arquivo copiado apenas para Programas em $ComputerName"
             }
