@@ -180,35 +180,44 @@ function Get-RemoteUserDesktop {
     }
 }
 
-# Função para executar o instalador automaticamente na máquina remota
-function Start-RemoteInstallation {
+# Função para ABRIR o aplicativo como duplo-clique
+function Start-RemoteApplication {
     param([string]$ComputerName)
     
     try {
-        Write-Host "   🚀 Executando instalador automaticamente..." -ForegroundColor Yellow
-        Write-Log "Tentando executar GoToSetup automaticamente em $ComputerName"
+        Write-Host "   🖱️  Abrindo aplicativo (como duplo-clique)..." -ForegroundColor Yellow
+        Write-Log "Tentando abrir GoToSetup como duplo-clique em $ComputerName"
         
-        # Tentar executar via PsExec no Desktop público
+        # Método 1: Tentar abrir via PsExec sem parâmetros (como duplo-clique)
         $process = Start-Process -FilePath "PsExec.exe" -ArgumentList @(
             "\\$ComputerName",
-            "-s",
-            "-i",
-            "cmd.exe /c `"C:\Users\Public\Desktop\GoToSetup.exe`" /S"
+            "-i",  # Executa na sessão interativa do usuário
+            "cmd.exe /c `"C:\Users\Public\Desktop\GoToSetup.exe`""
         ) -PassThru -NoNewWindow -Wait -ErrorAction SilentlyContinue
         
+        # Método 2: Se o primeiro falhar, tentar método alternativo
+        if ($process.ExitCode -ne 0) {
+            Write-Host "   🔄 Tentando método alternativo..." -ForegroundColor Gray
+            $process = Start-Process -FilePath "PsExec.exe" -ArgumentList @(
+                "\\$ComputerName",
+                "-i",
+                "C:\Users\Public\Desktop\GoToSetup.exe"
+            ) -PassThru -NoNewWindow -Wait -ErrorAction SilentlyContinue
+        }
+        
         if ($process.ExitCode -eq 0) {
-            Write-Host "   ✅ Instalador executado com sucesso" -ForegroundColor Green
-            Write-Log "SUCESSO: GoToSetup executado automaticamente"
+            Write-Host "   ✅ Aplicativo aberto com sucesso" -ForegroundColor Green
+            Write-Log "SUCESSO: GoToSetup aberto como duplo-clique"
             return $true
         } else {
-            Write-Host "   ⚠ Não foi possível executar automaticamente" -ForegroundColor Yellow
-            Write-Log "AVISO: Falha ao executar GoToSetup automaticamente - ExitCode: $($process.ExitCode)"
+            Write-Host "   ⚠ Não foi possível abrir o aplicativo" -ForegroundColor Yellow
+            Write-Log "AVISO: Falha ao abrir GoToSetup - ExitCode: $($process.ExitCode)"
             return $false
         }
         
     } catch {
-        Write-Host "   ❌ Erro ao executar: $($_.Exception.Message)" -ForegroundColor Red
-        Write-Log "ERRO ao executar GoToSetup: $($_.Exception.Message)"
+        Write-Host "   ❌ Erro ao abrir aplicativo: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Log "ERRO ao abrir GoToSetup: $($_.Exception.Message)"
         return $false
     }
 }
@@ -263,8 +272,8 @@ function Transfer-FilesToRemote {
             }
         }
         
-        # AGORA EXECUTAR O INSTALADOR AUTOMATICAMENTE
-        $executionResult = Start-RemoteInstallation -ComputerName $ComputerName
+        # AGORA APENAS ABRIR O APLICATIVO (COMO DUPLO-CLIQUE)
+        $executionResult = Start-RemoteApplication -ComputerName $ComputerName
         
         # Verificar se pelo menos o arquivo foi copiado para Programas
         if (Test-Path "$remoteProgramasDir\GoToSetup.exe") {
@@ -327,8 +336,8 @@ try {
     
     # Perguntar se deseja continuar com transferência remota
     Write-Host ""
-    Write-Host "⏸️  Deseja transferir e INSTALAR automaticamente em outras máquinas?" -ForegroundColor Yellow
-    Write-Host "   (O arquivo será copiado e executado automaticamente)" -ForegroundColor Gray
+    Write-Host "⏸️  Deseja transferir e ABRIR o aplicativo em outras máquinas?" -ForegroundColor Yellow
+    Write-Host "   (O arquivo será copiado e aberto como duplo-clique)" -ForegroundColor Gray
     $continuar = Read-Host "Digite 'S' para continuar ou 'N' para parar (S/N)"
     
     if ($continuar -notmatch '^[Ss]$') {
@@ -355,8 +364,8 @@ try {
     }
 
     Write-Host ""
-    Write-Host "🔧 Iniciando TRANSFERÊNCIA E INSTALAÇÃO em $($computers.Count) máquinas..." -ForegroundColor Cyan
-    Write-Log "Iniciando processo de TRANSFERÊNCIA E INSTALAÇÃO em $($computers.Count) máquinas"
+    Write-Host "🔧 Iniciando TRANSFERÊNCIA E ABERTURA em $($computers.Count) máquinas..." -ForegroundColor Cyan
+    Write-Log "Iniciando processo de TRANSFERÊNCIA E ABERTURA em $($computers.Count) máquinas"
     Write-Host ""
 
     # 5. TRANSFERÊNCIA REMOTA
@@ -381,7 +390,7 @@ try {
             $transferResult = Transfer-FilesToRemote -ComputerName $computer
             
             if ($transferResult) {
-                Write-Host "✅ TRANSFERIDO E INSTALADO" -ForegroundColor Green
+                Write-Host "✅ TRANSFERIDO E ABERTO" -ForegroundColor Green
                 $successCount++
             } else {
                 Write-Host "❌ FALHA" -ForegroundColor Red
@@ -403,7 +412,7 @@ try {
 # 6. RESUMO FINAL
 Write-Host ""
 Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "           📊 RESUMO DA INSTALAÇÃO" -ForegroundColor Cyan
+Write-Host "           📊 RESUMO DA OPERAÇÃO" -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 Write-Host "📍 Instalação LOCAL: " -NoNewline -ForegroundColor White
 if ($localInstallResult) {
@@ -411,7 +420,7 @@ if ($localInstallResult) {
 } else {
     Write-Host "FALHA ❌" -ForegroundColor Red
 }
-Write-Host "✅ Transferências e instalações bem-sucedidas: $successCount" -ForegroundColor Green
+Write-Host "✅ Transferências e aberturas bem-sucedidas: $successCount" -ForegroundColor Green
 Write-Host "📴 Máquinas offline: $offlineCount" -ForegroundColor Gray
 Write-Host "❌ Erros/Falhas (remoto): $errorCount" -ForegroundColor Red
 Write-Host "📊 Total de máquinas remotas: $($computers.Count)" -ForegroundColor White
@@ -425,21 +434,21 @@ Write-Log "Erros: $errorCount"
 Write-Log "Total Máquinas Remotas: $($computers.Count)"
 
 if ($successCount -eq $computers.Count) {
-    Write-Host "🎉 TODOS OS ARQUIVOS FORAM TRANSFERIDOS E INSTALADOS COM SUCESSO!" -ForegroundColor Green
-    Write-Log "STATUS: Todas as transferências e instalações bem-sucedidas"
+    Write-Host "🎉 TODOS OS ARQUIVOS FORAM TRANSFERIDOS E ABERTOS COM SUCESSO!" -ForegroundColor Green
+    Write-Log "STATUS: Todas as transferências e aberturas bem-sucedidas"
 } elseif ($successCount -gt 0) {
-    Write-Host "⚠ Transferência e instalação parcialmente concluída" -ForegroundColor Yellow
-    Write-Log "STATUS: Transferência e instalação parcialmente concluída"
+    Write-Host "⚠ Transferência e abertura parcialmente concluída" -ForegroundColor Yellow
+    Write-Log "STATUS: Transferência e abertura parcialmente concluída"
 } else {
-    Write-Host "💥 NENHUMA TRANSFERÊNCIA/INSTALAÇÃO BEM-SUCEDIDA" -ForegroundColor Red
-    Write-Log "STATUS: Nenhuma transferência/instalação bem-sucedida"
+    Write-Host "💥 NENHUMA TRANSFERÊNCIA/ABERTURA BEM-SUCEDIDA" -ForegroundColor Red
+    Write-Log "STATUS: Nenhuma transferência/abertura bem-sucedida"
 }
 
 Write-Host ""
 Write-Host "💡 Os arquivos foram copiados para:" -ForegroundColor Cyan
 Write-Host "   • C:\Programas\GoToSetup.exe" -ForegroundColor Cyan
 Write-Host "   • Desktop do usuário\GoToSetup.exe" -ForegroundColor Cyan
-Write-Host "💡 E executados automaticamente nas máquinas remotas" -ForegroundColor Cyan
+Write-Host "💡 E abertos automaticamente nas máquinas remotas" -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 Write-Host ""
 
