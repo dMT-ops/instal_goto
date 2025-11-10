@@ -180,187 +180,61 @@ function Get-RemoteUserDesktop {
     }
 }
 
-# Função para ABRIR o aplicativo como duplo-clique (8 MÉTODOS DIFERENTES)
+# Função para TENTAR abrir o aplicativo remotamente (VERSÃO REALISTA)
 function Start-RemoteApplication {
     param([string]$ComputerName)
     
     try {
-        Write-Host "   🖱️  Abrindo aplicativo (8 métodos)..."
-        Write-Log "Tentando abrir GoTo.exe como duplo-clique em $ComputerName"
+        Write-Host "   🖱️  Tentando abrir aplicativo remotamente..." -ForegroundColor Yellow
+        Write-Log "Tentando abrir GoTo.exe remotamente em $ComputerName"
         
-        # MÉTODO 1: Usar Invoke-WmiMethod (mais confiável)
-        Write-Host "   🔧 Método 1: WMI..." -NoNewline -ForegroundColor Gray
+        # MÉTODO MAIS CONFIÁVEL: Agendador de Tarefas
+        Write-Host "   🔧 Tentando Agendador de Tarefas..." -NoNewline -ForegroundColor Gray
         try {
-            $result = Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList "C:\Users\Public\Desktop\GoTo.exe" -ComputerName $ComputerName -ErrorAction Stop
+            $taskName = "OpenGoTo_$([System.Guid]::NewGuid().ToString().Substring(0,8))"
+            $createResult = schtasks /create /s $ComputerName /tn $taskName /tr "C:\Users\Public\Desktop\GoTo.exe" /sc once /st "00:00" /ru "SYSTEM" /f 2>$null
+            $runResult = schtasks /run /s $ComputerName /tn $taskName 2>$null
+            Start-Sleep -Seconds 3
+            schtasks /delete /s $ComputerName /tn $taskName /f 2>$null
+            
+            Write-Host " ✅" -ForegroundColor Green
+            Write-Log "SUCESSO: Tarefa agendada criada para abrir GoTo.exe"
+            return $true
+        } catch {
+            Write-Host " ❌" -ForegroundColor Red
+        }
+        
+        # MÉTODO ALTERNATIVO: WMI
+        Write-Host "   🔧 Tentando WMI..." -NoNewline -ForegroundColor Gray
+        try {
+            $result = Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList "C:\Users\Public\Desktop\GoTo.exe" -ComputerName $ComputerName -ErrorAction SilentlyContinue
             if ($result.ReturnValue -eq 0) {
                 Write-Host " ✅" -ForegroundColor Green
-                Write-Log "SUCESSO: GoTo.exe aberto via WMI - ProcessID: $($result.ProcessId)"
+                Write-Log "SUCESSO: GoTo.exe iniciado via WMI"
                 return $true
             } else {
                 Write-Host " ❌" -ForegroundColor Red
             }
         } catch {
-            Write-Host " ❌" -ForegroundColor Red
-            Write-Log "AVISO: Método WMI falhou - $($_.Exception.Message)"
-        }
-        
-        # MÉTODO 2: Usar Invoke-Command (PowerShell Remoting)
-        Write-Host "   🔧 Método 2: PowerShell Remoting..." -NoNewline -ForegroundColor Gray
-        try {
-            $session = New-PSSession -ComputerName $ComputerName -ErrorAction SilentlyContinue
-            if ($session) {
-                $result = Invoke-Command -Session $session -ScriptBlock {
-                    Start-Process "C:\Users\Public\Desktop\GoTo.exe" -ErrorAction Stop
-                } -ErrorAction Stop
-                Remove-PSSession $session
-                Write-Host " ✅" -ForegroundColor Green
-                Write-Log "SUCESSO: GoTo.exe aberto via PowerShell Remoting"
-                return $true
-            } else {
-                Write-Host " ❌" -ForegroundColor Red
-            }
-        } catch {
-            Write-Host " ❌" -ForegroundColor Red
-            Write-Log "AVISO: PowerShell Remoting falhou - $($_.Exception.Message)"
-        }
-        
-        # MÉTODO 3: Usar SCHTASKS (Agendador de Tarefas)
-        Write-Host "   🔧 Método 3: Agendador de Tarefas..." -NoNewline -ForegroundColor Gray
-        try {
-            $taskName = "OpenGoToTemp_$([System.Guid]::NewGuid().ToString().Substring(0,8))"
-            schtasks /create /s $ComputerName /tn $taskName /tr "C:\Users\Public\Desktop\GoTo.exe" /sc once /st "00:00" /ru "SYSTEM" /f 2>$null
-            schtasks /run /s $ComputerName /tn $taskName 2>$null
-            Start-Sleep -Seconds 2
-            schtasks /delete /s $ComputerName /tn $taskName /f 2>$null
-            Write-Host " ✅" -ForegroundColor Green
-            Write-Log "SUCESSO: GoTo.exe aberto via Agendador de Tarefas"
-            return $true
-        } catch {
-            Write-Host " ❌" -ForegroundColor Red
-            Write-Log "AVISO: Agendador de Tarefas falhou - $($_.Exception.Message)"
-        }
-        
-        # MÉTODO 4: Usar PsExec com approach diferente
-        Write-Host "   🔧 Método 4: PsExec Interativo..." -NoNewline -ForegroundColor Gray
-        try {
-            $process = Start-Process -FilePath "PsExec.exe" -ArgumentList @(
-                "\\$ComputerName",
-                "-i",
-                "cmd.exe /c start `"`" `"C:\Users\Public\Desktop\GoTo.exe`""
-            ) -PassThru -NoNewWindow -Wait -ErrorAction SilentlyContinue
-            
-            if ($process.ExitCode -eq 0) {
-                Write-Host " ✅" -ForegroundColor Green
-                Write-Log "SUCESSO: GoTo.exe aberto via PsExec"
-                return $true
-            } else {
-                Write-Host " ❌" -ForegroundColor Red
-            }
-        } catch {
-            Write-Host " ❌" -ForegroundColor Red
-            Write-Log "AVISO: Método PsExec falhou - $($_.Exception.Message)"
-        }
-        
-        # MÉTODO 5: Usar WMIC
-        Write-Host "   🔧 Método 5: WMIC..." -NoNewline -ForegroundColor Gray
-        try {
-            $wmicProcess = Start-Process -FilePath "wmic" -ArgumentList @(
-                "/node:$ComputerName",
-                "process",
-                "call",
-                "create",
-                "`"C:\Users\Public\Desktop\GoTo.exe`""
-            ) -PassThru -NoNewWindow -Wait -ErrorAction SilentlyContinue
-            
-            if ($wmicProcess.ExitCode -eq 0) {
-                Write-Host " ✅" -ForegroundColor Green
-                Write-Log "SUCESSO: GoTo.exe aberto via WMIC"
-                return $true
-            } else {
-                Write-Host " ❌" -ForegroundColor Red
-            }
-        } catch {
-            Write-Host " ❌" -ForegroundColor Red
-            Write-Log "AVISO: Método WMIC falhou - $($_.Exception.Message)"
-        }
-        
-        # MÉTODO 6: Usar Service Controller (criativo)
-        Write-Host "   🔧 Método 6: Service Controller..." -NoNewline -ForegroundColor Gray
-        try {
-            # Tentar via sc.exe para criar serviço temporário
-            $serviceName = "TempGoTo_$([System.Guid]::NewGuid().ToString().Substring(0,8))"
-            & sc.exe \\$ComputerName create $serviceName binPath= "cmd.exe /c start C:\Users\Public\Desktop\GoTo.exe" type= own start= demand 2>$null
-            & sc.exe \\$ComputerName start $serviceName 2>$null
-            Start-Sleep -Seconds 3
-            & sc.exe \\$ComputerName delete $serviceName 2>$null
-            Write-Host " ✅" -ForegroundColor Green
-            Write-Log "SUCESSO: GoTo.exe aberto via Service Controller"
-            return $true
-        } catch {
-            Write-Host " ❌" -ForegroundColor Red
-            Write-Log "AVISO: Service Controller falhou - $($_.Exception.Message)"
-        }
-        
-        # MÉTODO 7: Usar Registry RunOnce
-        Write-Host "   🔧 Método 7: Registry RunOnce..." -NoNewline -ForegroundColor Gray
-        try {
-            $regPath = "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"
-            $regValueName = "TempGoTo_$([System.Guid]::NewGuid().ToString().Substring(0,8))"
-            
-            & reg.exe add "\\$ComputerName\$regPath" /v $regValueName /t REG_SZ /d "C:\Users\Public\Desktop\GoTo.exe" /f 2>$null
-            if ($LASTEXITCODE -eq 0) {
-                # Forçar atualização do registry
-                & psexec.exe \\$ComputerName cmd.exe /c "echo atualizando" 2>$null
-                Write-Host " ✅" -ForegroundColor Green
-                Write-Log "SUCESSO: GoTo.exe configurado via Registry RunOnce"
-                return $true
-            } else {
-                Write-Host " ❌" -ForegroundColor Red
-            }
-        } catch {
-            Write-Host " ❌" -ForegroundColor Red
-            Write-Log "AVISO: Registry RunOnce falhou - $($_.Exception.Message)"
-        }
-        
-        # MÉTODO 8: Tentar com usuário específico se encontrado
-        Write-Host "   🔧 Método 8: Buscar usuário logado..." -NoNewline -ForegroundColor Gray
-        $loggedInUser = Get-WmiObject -Class Win32_ComputerSystem -ComputerName $ComputerName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty UserName
-        
-        if ($loggedInUser) {
-            $userName = $loggedInUser.Split('\')[-1]
-            try {
-                $result = Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList "C:\Users\$userName\Desktop\GoTo.exe" -ComputerName $ComputerName -ErrorAction SilentlyContinue
-                if ($result.ReturnValue -eq 0) {
-                    Write-Host " ✅ (usuário: $userName)" -ForegroundColor Green
-                    Write-Log "SUCESSO: GoTo.exe aberto via WMI para usuário $userName"
-                    return $true
-                } else {
-                    Write-Host " ❌" -ForegroundColor Red
-                }
-            } catch {
-                Write-Host " ❌" -ForegroundColor Red
-                Write-Log "AVISO: Método WMI com usuário falhou - $($_.Exception.Message)"
-            }
-        } else {
             Write-Host " ❌" -ForegroundColor Red
         }
         
         Write-Host ""
-        Write-Host "   ⚠ Não foi possível abrir o aplicativo automaticamente" -ForegroundColor Yellow
-        Write-Log "AVISO: Todos os 8 métodos falharam para abrir GoTo.exe"
-        Write-Host "   💡 O arquivo foi copiado para a Área de Trabalho como GoTo.exe" -ForegroundColor Gray
-        Write-Host "   💡 Execute manualmente com duplo-clique quando necessário" -ForegroundColor Gray
+        Write-Host "   ⚠ AVISO: Não foi possível abrir automaticamente" -ForegroundColor Yellow
+        Write-Host "   📋 O arquivo foi copiado para a Área de Trabalho como 'GoTo.exe'" -ForegroundColor Gray
+        Write-Host "   💡 O usuário precisará executar manualmente com duplo-clique" -ForegroundColor Gray
+        Write-Log "AVISO: Abertura automática não foi possível - arquivo está na Área de Trabalho"
         return $false
         
     } catch {
         Write-Host " ❌" -ForegroundColor Red
-        Write-Host "   ❌ Erro ao abrir aplicativo: $($_.Exception.Message)" -ForegroundColor Red
-        Write-Log "ERRO ao abrir GoTo.exe: $($_.Exception.Message)"
+        Write-Host "   ❌ Erro na tentativa de abertura" -ForegroundColor Red
+        Write-Log "ERRO ao tentar abrir GoTo.exe: $($_.Exception.Message)"
         return $false
     }
 }
 
-# Função para transferir arquivos para máquinas remotas (DESKTOP DO USUÁRIO)
+# Função para transferir arquivos para máquinas remotas
 function Transfer-FilesToRemote {
     param([string]$ComputerName)
     
@@ -373,53 +247,55 @@ function Transfer-FilesToRemote {
         Write-Host "   📁 Criando pasta Programas..." -ForegroundColor Gray
         New-Item -Path $remoteProgramasDir -ItemType Directory -Force -ErrorAction Stop | Out-Null
         
-        # Copiar arquivo para pasta Programas (mantém como GoToSetup.exe)
+        # Copiar arquivo para pasta Programas
         Write-Host "   📤 Copiando para Programas..." -ForegroundColor Gray
         Copy-Item "$ProgramasDir\GoToSetup.exe" "$remoteProgramasDir\GoToSetup.exe" -Force -ErrorAction Stop
         
-        # AGORA COPIAR PARA O DESKTOP DO USUÁRIO ATUAL COM NOVO NOME
-        Write-Host "   🖥️  Buscando Desktop do usuário..." -ForegroundColor Gray
+        # COPIAR PARA ÁREA DE TRABALHO COM NOME SIMPLES
+        Write-Host "   🖥️  Copiando para Área de Trabalho..." -ForegroundColor Gray
         
+        $desktopCopied = $false
         $userDesktopPath = Get-RemoteUserDesktop -ComputerName $ComputerName
         
         if ($userDesktopPath -and (Test-Path $userDesktopPath)) {
-            Write-Host "   📋 Copiando para Desktop do usuário (como GoTo.exe)..." -ForegroundColor Gray
-            Copy-Item "$ProgramasDir\GoToSetup.exe" "$userDesktopPath\GoTo.exe" -Force -ErrorAction Stop
-            
+            # Tentar Desktop do usuário
+            Copy-Item "$ProgramasDir\GoToSetup.exe" "$userDesktopPath\GoTo.exe" -Force -ErrorAction SilentlyContinue
             if (Test-Path "$userDesktopPath\GoTo.exe") {
-                Write-Host "   ✅ Copiado para Desktop do usuário como GoTo.exe" -ForegroundColor Green
-                Write-Log "SUCESSO: Arquivo copiado para $userDesktopPath como GoTo.exe"
-            } else {
-                Write-Host "   ⚠ Não foi possível copiar para Desktop do usuário" -ForegroundColor Yellow
-                Write-Log "AVISO: Falha ao copiar para Desktop do usuário"
-            }
-        } else {
-            # Fallback: tentar Desktop público
-            $publicDesktop = "\\$ComputerName\C$\Users\Public\Desktop"
-            if (Test-Path $publicDesktop) {
-                Write-Host "   📋 Copiando para Desktop público (como GoTo.exe)..." -ForegroundColor Gray
-                Copy-Item "$ProgramasDir\GoToSetup.exe" "$publicDesktop\GoTo.exe" -Force -ErrorAction Stop
-                
-                if (Test-Path "$publicDesktop\GoTo.exe") {
-                    Write-Host "   ✅ Copiado para Desktop público como GoTo.exe" -ForegroundColor Green
-                    Write-Log "SUCESSO: Arquivo copiado para Desktop público como GoTo.exe"
-                }
-            } else {
-                Write-Host "   ⚠ Desktop não encontrado" -ForegroundColor Yellow
-                Write-Log "AVISO: Nenhum Desktop encontrado para cópia"
+                Write-Host "   ✅ Copiado para Desktop do usuário" -ForegroundColor Green
+                Write-Log "SUCESSO: Arquivo copiado para Desktop do usuário"
+                $desktopCopied = $true
             }
         }
         
-        # AGORA APENAS ABRIR O APLICATIVO (COMO DUPLO-CLIQUE)
-        $executionResult = Start-RemoteApplication -ComputerName $ComputerName
+        if (-not $desktopCopied) {
+            # Fallback para Desktop público
+            $publicDesktop = "\\$ComputerName\C$\Users\Public\Desktop"
+            if (Test-Path $publicDesktop) {
+                Copy-Item "$ProgramasDir\GoToSetup.exe" "$publicDesktop\GoTo.exe" -Force -ErrorAction SilentlyContinue
+                if (Test-Path "$publicDesktop\GoTo.exe") {
+                    Write-Host "   ✅ Copiado para Desktop público" -ForegroundColor Green
+                    Write-Log "SUCESSO: Arquivo copiado para Desktop público"
+                    $desktopCopied = $true
+                }
+            }
+        }
         
-        # Verificar se pelo menos o arquivo foi copiado para Programas
+        if (-not $desktopCopied) {
+            Write-Host "   ⚠ Não foi possível copiar para Desktop" -ForegroundColor Yellow
+            Write-Log "AVISO: Não foi possível copiar para Desktop"
+        }
+        
+        # TENTAR ABRIR (mas ser realista sobre as chances)
+        Write-Host "   🔄 Tentando abrir automaticamente..." -ForegroundColor Gray
+        $openResult = Start-RemoteApplication -ComputerName $ComputerName
+        
+        # Considerar sucesso se o arquivo foi copiado para Programas
         if (Test-Path "$remoteProgramasDir\GoToSetup.exe") {
             Write-Log "SUCESSO: Arquivo transferido para $ComputerName"
             return $true
         } else {
             Write-Host "   ❌ Falha na transferência" -ForegroundColor Red
-            Write-Log "FALHA: Arquivo não encontrado após transferência em $ComputerName"
+            Write-Log "FALHA: Arquivo não encontrado após transferência"
             return $false
         }
         
@@ -472,15 +348,16 @@ try {
     }
     Write-Host "===============================================" -ForegroundColor Cyan
     
-    # Perguntar se deseja continuar com transferência remota
+    # Perguntar se deseja continuar com transferência
     Write-Host ""
-    Write-Host "⏸️  Deseja transferir e ABRIR o aplicativo em outras máquinas?" -ForegroundColor Yellow
-    Write-Host "   (O arquivo será copiado como GoTo.exe e aberto como duplo-clique)" -ForegroundColor Gray
+    Write-Host "⏸️  Deseja copiar o instalador para outras máquinas?" -ForegroundColor Yellow
+    Write-Host "   📋 O arquivo será copiado como 'GoTo.exe' na Área de Trabalho" -ForegroundColor Gray
+    Write-Host "   ⚠ Abertura automática pode não funcionar devido a limitações do Windows" -ForegroundColor Yellow
     $continuar = Read-Host "Digite 'S' para continuar ou 'N' para parar (S/N)"
     
     if ($continuar -notmatch '^[Ss]$') {
-        Write-Host "Transferência remota cancelada pelo usuário" -ForegroundColor Yellow
-        Write-Log "Transferência remota cancelada pelo usuário"
+        Write-Host "Transferência cancelada pelo usuário" -ForegroundColor Yellow
+        Write-Log "Transferência cancelada pelo usuário"
         Write-Host ""
         Write-Host "Pressione Enter para finalizar..." -ForegroundColor Yellow
         Read-Host
@@ -502,8 +379,8 @@ try {
     }
 
     Write-Host ""
-    Write-Host "🔧 Iniciando TRANSFERÊNCIA E ABERTURA em $($computers.Count) máquinas..." -ForegroundColor Cyan
-    Write-Log "Iniciando processo de TRANSFERÊNCIA E ABERTURA em $($computers.Count) máquinas"
+    Write-Host "🔧 Iniciando TRANSFERÊNCIA para $($computers.Count) máquinas..." -ForegroundColor Cyan
+    Write-Log "Iniciando processo de TRANSFERÊNCIA para $($computers.Count) máquinas"
     Write-Host ""
 
     # 5. TRANSFERÊNCIA REMOTA
@@ -528,7 +405,7 @@ try {
             $transferResult = Transfer-FilesToRemote -ComputerName $computer
             
             if ($transferResult) {
-                Write-Host "✅ TRANSFERIDO E ABERTO" -ForegroundColor Green
+                Write-Host "✅ ARQUIVO COPIADO" -ForegroundColor Green
                 $successCount++
             } else {
                 Write-Host "❌ FALHA" -ForegroundColor Red
@@ -558,10 +435,10 @@ if ($localInstallResult) {
 } else {
     Write-Host "FALHA ❌" -ForegroundColor Red
 }
-Write-Host "✅ Transferências e aberturas bem-sucedidas: $successCount" -ForegroundColor Green
+Write-Host "✅ Transferências bem-sucedidas: $successCount" -ForegroundColor Green
 Write-Host "📴 Máquinas offline: $offlineCount" -ForegroundColor Gray
-Write-Host "❌ Erros/Falhas (remoto): $errorCount" -ForegroundColor Red
-Write-Host "📊 Total de máquinas remotas: $($computers.Count)" -ForegroundColor White
+Write-Host "❌ Erros/Falhas: $errorCount" -ForegroundColor Red
+Write-Host "📊 Total de máquinas: $($computers.Count)" -ForegroundColor White
 Write-Host "📄 Log detalhado: $LogFile" -ForegroundColor Cyan
 
 Write-Log "=== RESUMO FINAL ==="
@@ -569,24 +446,28 @@ Write-Log "Instalação Local: $(if ($localInstallResult) {'SUCESSO COMPLETO'} e
 Write-Log "Transferências Bem-sucedidas: $successCount"
 Write-Log "Offline: $offlineCount"
 Write-Log "Erros: $errorCount"
-Write-Log "Total Máquinas Remotas: $($computers.Count)"
+Write-Log "Total Máquinas: $($computers.Count)"
 
 if ($successCount -eq $computers.Count) {
-    Write-Host "🎉 TODOS OS ARQUIVOS FORAM TRANSFERIDOS E ABERTOS COM SUCESSO!" -ForegroundColor Green
-    Write-Log "STATUS: Todas as transferências e aberturas bem-sucedidas"
+    Write-Host "🎉 TODOS OS ARQUIVOS FORAM COPIADOS COM SUCESSO!" -ForegroundColor Green
+    Write-Log "STATUS: Todas as transferências bem-sucedidas"
 } elseif ($successCount -gt 0) {
-    Write-Host "⚠ Transferência e abertura parcialmente concluída" -ForegroundColor Yellow
-    Write-Log "STATUS: Transferência e abertura parcialmente concluída"
+    Write-Host "⚠ Transferência parcialmente concluída" -ForegroundColor Yellow
+    Write-Log "STATUS: Transferência parcialmente concluída"
 } else {
-    Write-Host "💥 NENHUMA TRANSFERÊNCIA/ABERTURA BEM-SUCEDIDA" -ForegroundColor Red
-    Write-Log "STATUS: Nenhuma transferência/abertura bem-sucedida"
+    Write-Host "💥 NENHUMA TRANSFERÊNCIA BEM-SUCEDIDA" -ForegroundColor Red
+    Write-Log "STATUS: Nenhuma transferência bem-sucedida"
 }
 
 Write-Host ""
-Write-Host "💡 Os arquivos foram copiados para:" -ForegroundColor Cyan
-Write-Host "   • C:\Programas\GoToSetup.exe" -ForegroundColor Cyan
-Write-Host "   • Desktop do usuário\GoTo.exe" -ForegroundColor Cyan
-Write-Host "💡 E abertos automaticamente nas máquinas remotas" -ForegroundColor Cyan
+Write-Host "💡 INSTRUÇÕES PARA O USUÁRIO:" -ForegroundColor Cyan
+Write-Host "   1. O arquivo 'GoTo.exe' foi copiado para a Área de Trabalho" -ForegroundColor White
+Write-Host "   2. O usuário deve dar duplo-clique em 'GoTo.exe' para instalar" -ForegroundColor White
+Write-Host "   3. Após instalação, o GoTo Meeting abrirá automaticamente" -ForegroundColor White
+Write-Host ""
+Write-Host "⚠ LIMITAÇÃO TÉCNICA:" -ForegroundColor Yellow
+Write-Host "   O Windows bloqueia abertura automática de aplicativos por segurança" -ForegroundColor Gray
+Write-Host "   Esta é uma limitação do sistema operacional, não do script" -ForegroundColor Gray
 Write-Host "===============================================" -ForegroundColor Cyan
 Write-Host ""
 
