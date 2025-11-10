@@ -180,44 +180,68 @@ function Get-RemoteUserDesktop {
     }
 }
 
-# Função para ABRIR o aplicativo como duplo-clique
+# Função para ABRIR o aplicativo como duplo-clique (VERSÃO CORRIGIDA)
 function Start-RemoteApplication {
     param([string]$ComputerName)
     
     try {
         Write-Host "   🖱️  Abrindo aplicativo (como duplo-clique)..." -ForegroundColor Yellow
-        Write-Log "Tentando abrir GoToSetup como duplo-clique em $ComputerName"
+        Write-Log "Tentando abrir GoTo.exe como duplo-clique em $ComputerName"
         
-        # Método 1: Tentar abrir via PsExec sem parâmetros (como duplo-clique)
-        $process = Start-Process -FilePath "PsExec.exe" -ArgumentList @(
+        # PRIMEIRO: Tentar abrir no Desktop público (mais confiável)
+        Write-Host "   🔧 Método 1: Desktop público..." -ForegroundColor Gray
+        $process1 = Start-Process -FilePath "PsExec.exe" -ArgumentList @(
             "\\$ComputerName",
             "-i",  # Executa na sessão interativa do usuário
-            "cmd.exe /c `"C:\Users\Public\Desktop\GoToSetup.exe`""
+            "`"C:\Users\Public\Desktop\GoTo.exe`""
         ) -PassThru -NoNewWindow -Wait -ErrorAction SilentlyContinue
         
-        # Método 2: Se o primeiro falhar, tentar método alternativo
-        if ($process.ExitCode -ne 0) {
-            Write-Host "   🔄 Tentando método alternativo..." -ForegroundColor Gray
-            $process = Start-Process -FilePath "PsExec.exe" -ArgumentList @(
-                "\\$ComputerName",
-                "-i",
-                "C:\Users\Public\Desktop\GoToSetup.exe"
-            ) -PassThru -NoNewWindow -Wait -ErrorAction SilentlyContinue
+        if ($process1.ExitCode -eq 0) {
+            Write-Host "   ✅ Aplicativo aberto com sucesso (Desktop público)" -ForegroundColor Green
+            Write-Log "SUCESSO: GoTo.exe aberto via Desktop público"
+            return $true
         }
         
-        if ($process.ExitCode -eq 0) {
-            Write-Host "   ✅ Aplicativo aberto com sucesso" -ForegroundColor Green
-            Write-Log "SUCESSO: GoToSetup aberto como duplo-clique"
+        # SEGUNDO: Tentar via CMD (método alternativo)
+        Write-Host "   🔧 Método 2: Via CMD..." -ForegroundColor Gray
+        $process2 = Start-Process -FilePath "PsExec.exe" -ArgumentList @(
+            "\\$ComputerName",
+            "-i",
+            "cmd.exe /c `"C:\Users\Public\Desktop\GoTo.exe`""
+        ) -PassThru -NoNewWindow -Wait -ErrorAction SilentlyContinue
+        
+        if ($process2.ExitCode -eq 0) {
+            Write-Host "   ✅ Aplicativo aberto com sucesso (via CMD)" -ForegroundColor Green
+            Write-Log "SUCESSO: GoTo.exe aberto via CMD"
             return $true
-        } else {
-            Write-Host "   ⚠ Não foi possível abrir o aplicativo" -ForegroundColor Yellow
-            Write-Log "AVISO: Falha ao abrir GoToSetup - ExitCode: $($process.ExitCode)"
-            return $false
         }
+        
+        # TERCEIRO: Tentar encontrar e usar Desktop do usuário logado
+        Write-Host "   🔧 Método 3: Desktop do usuário..." -ForegroundColor Gray
+        $loggedInUser = Get-WmiObject -Class Win32_ComputerSystem -ComputerName $ComputerName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty UserName
+        
+        if ($loggedInUser) {
+            $userName = $loggedInUser.Split('\')[-1]
+            $process3 = Start-Process -FilePath "PsExec.exe" -ArgumentList @(
+                "\\$ComputerName",
+                "-i",
+                "`"C:\Users\$userName\Desktop\GoTo.exe`""
+            ) -PassThru -NoNewWindow -Wait -ErrorAction SilentlyContinue
+            
+            if ($process3.ExitCode -eq 0) {
+                Write-Host "   ✅ Aplicativo aberto com sucesso (usuário: $userName)" -ForegroundColor Green
+                Write-Log "SUCESSO: GoTo.exe aberto via Desktop do usuário $userName"
+                return $true
+            }
+        }
+        
+        Write-Host "   ⚠ Não foi possível abrir o aplicativo" -ForegroundColor Yellow
+        Write-Log "AVISO: Todos os métodos falharam para abrir GoTo.exe"
+        return $false
         
     } catch {
         Write-Host "   ❌ Erro ao abrir aplicativo: $($_.Exception.Message)" -ForegroundColor Red
-        Write-Log "ERRO ao abrir GoToSetup: $($_.Exception.Message)"
+        Write-Log "ERRO ao abrir GoTo.exe: $($_.Exception.Message)"
         return $false
     }
 }
@@ -235,22 +259,22 @@ function Transfer-FilesToRemote {
         Write-Host "   📁 Criando pasta Programas..." -ForegroundColor Gray
         New-Item -Path $remoteProgramasDir -ItemType Directory -Force -ErrorAction Stop | Out-Null
         
-        # Copiar arquivo para pasta Programas
+        # Copiar arquivo para pasta Programas (mantém como GoToSetup.exe)
         Write-Host "   📤 Copiando para Programas..." -ForegroundColor Gray
         Copy-Item "$ProgramasDir\GoToSetup.exe" "$remoteProgramasDir\GoToSetup.exe" -Force -ErrorAction Stop
         
-        # AGORA COPIAR PARA O DESKTOP DO USUÁRIO ATUAL
+        # AGORA COPIAR PARA O DESKTOP DO USUÁRIO ATUAL COM NOVO NOME
         Write-Host "   🖥️  Buscando Desktop do usuário..." -ForegroundColor Gray
         
         $userDesktopPath = Get-RemoteUserDesktop -ComputerName $ComputerName
         
         if ($userDesktopPath -and (Test-Path $userDesktopPath)) {
-            Write-Host "   📋 Copiando para Desktop do usuário..." -ForegroundColor Gray
-            Copy-Item "$ProgramasDir\GoToSetup.exe" "$userDesktopPath\GoToSetup.exe" -Force -ErrorAction Stop
+            Write-Host "   📋 Copiando para Desktop do usuário (como GoTo.exe)..." -ForegroundColor Gray
+            Copy-Item "$ProgramasDir\GoToSetup.exe" "$userDesktopPath\GoTo.exe" -Force -ErrorAction Stop
             
-            if (Test-Path "$userDesktopPath\GoToSetup.exe") {
-                Write-Host "   ✅ Copiado para Desktop do usuário" -ForegroundColor Green
-                Write-Log "SUCESSO: Arquivo copiado para $userDesktopPath"
+            if (Test-Path "$userDesktopPath\GoTo.exe") {
+                Write-Host "   ✅ Copiado para Desktop do usuário como GoTo.exe" -ForegroundColor Green
+                Write-Log "SUCESSO: Arquivo copiado para $userDesktopPath como GoTo.exe"
             } else {
                 Write-Host "   ⚠ Não foi possível copiar para Desktop do usuário" -ForegroundColor Yellow
                 Write-Log "AVISO: Falha ao copiar para Desktop do usuário"
@@ -259,12 +283,12 @@ function Transfer-FilesToRemote {
             # Fallback: tentar Desktop público
             $publicDesktop = "\\$ComputerName\C$\Users\Public\Desktop"
             if (Test-Path $publicDesktop) {
-                Write-Host "   📋 Copiando para Desktop público..." -ForegroundColor Gray
-                Copy-Item "$ProgramasDir\GoToSetup.exe" "$publicDesktop\GoToSetup.exe" -Force -ErrorAction Stop
+                Write-Host "   📋 Copiando para Desktop público (como GoTo.exe)..." -ForegroundColor Gray
+                Copy-Item "$ProgramasDir\GoToSetup.exe" "$publicDesktop\GoTo.exe" -Force -ErrorAction Stop
                 
-                if (Test-Path "$publicDesktop\GoToSetup.exe") {
-                    Write-Host "   ✅ Copiado para Desktop público" -ForegroundColor Green
-                    Write-Log "SUCESSO: Arquivo copiado para Desktop público"
+                if (Test-Path "$publicDesktop\GoTo.exe") {
+                    Write-Host "   ✅ Copiado para Desktop público como GoTo.exe" -ForegroundColor Green
+                    Write-Log "SUCESSO: Arquivo copiado para Desktop público como GoTo.exe"
                 }
             } else {
                 Write-Host "   ⚠ Desktop não encontrado" -ForegroundColor Yellow
@@ -337,7 +361,7 @@ try {
     # Perguntar se deseja continuar com transferência remota
     Write-Host ""
     Write-Host "⏸️  Deseja transferir e ABRIR o aplicativo em outras máquinas?" -ForegroundColor Yellow
-    Write-Host "   (O arquivo será copiado e aberto como duplo-clique)" -ForegroundColor Gray
+    Write-Host "   (O arquivo será copiado como GoTo.exe e aberto como duplo-clique)" -ForegroundColor Gray
     $continuar = Read-Host "Digite 'S' para continuar ou 'N' para parar (S/N)"
     
     if ($continuar -notmatch '^[Ss]$') {
@@ -447,7 +471,7 @@ if ($successCount -eq $computers.Count) {
 Write-Host ""
 Write-Host "💡 Os arquivos foram copiados para:" -ForegroundColor Cyan
 Write-Host "   • C:\Programas\GoToSetup.exe" -ForegroundColor Cyan
-Write-Host "   • Desktop do usuário\GoToSetup.exe" -ForegroundColor Cyan
+Write-Host "   • Desktop do usuário\GoTo.exe" -ForegroundColor Cyan
 Write-Host "💡 E abertos automaticamente nas máquinas remotas" -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 Write-Host ""
