@@ -180,7 +180,7 @@ function Get-RemoteUserDesktop {
     }
 }
 
-# Função para ABRIR o aplicativo como duplo-clique (VERSÃO CORRIGIDA)
+# Função para ABRIR o aplicativo como duplo-clique (VERSÃO MELHORADA)
 function Start-RemoteApplication {
     param([string]$ComputerName)
     
@@ -188,55 +188,74 @@ function Start-RemoteApplication {
         Write-Host "   🖱️  Abrindo aplicativo (como duplo-clique)..." -ForegroundColor Yellow
         Write-Log "Tentando abrir GoTo.exe como duplo-clique em $ComputerName"
         
-        # PRIMEIRO: Tentar abrir no Desktop público (mais confiável)
-        Write-Host "   🔧 Método 1: Desktop público..." -ForegroundColor Gray
-        $process1 = Start-Process -FilePath "PsExec.exe" -ArgumentList @(
-            "\\$ComputerName",
-            "-i",  # Executa na sessão interativa do usuário
-            "`"C:\Users\Public\Desktop\GoTo.exe`""
-        ) -PassThru -NoNewWindow -Wait -ErrorAction SilentlyContinue
-        
-        if ($process1.ExitCode -eq 0) {
-            Write-Host "   ✅ Aplicativo aberto com sucesso (Desktop público)" -ForegroundColor Green
-            Write-Log "SUCESSO: GoTo.exe aberto via Desktop público"
-            return $true
+        # MÉTODO 1: Usar Invoke-WmiMethod (mais confiável)
+        Write-Host "   🔧 Método 1: WMI..." -ForegroundColor Gray
+        try {
+            $result = Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList "C:\Users\Public\Desktop\GoTo.exe" -ComputerName $ComputerName -ErrorAction Stop
+            if ($result.ReturnValue -eq 0) {
+                Write-Host "   ✅ Aplicativo aberto com sucesso (WMI)" -ForegroundColor Green
+                Write-Log "SUCESSO: GoTo.exe aberto via WMI - ProcessID: $($result.ProcessId)"
+                return $true
+            }
+        } catch {
+            Write-Log "AVISO: Método WMI falhou - $($_.Exception.Message)"
         }
         
-        # SEGUNDO: Tentar via CMD (método alternativo)
-        Write-Host "   🔧 Método 2: Via CMD..." -ForegroundColor Gray
-        $process2 = Start-Process -FilePath "PsExec.exe" -ArgumentList @(
-            "\\$ComputerName",
-            "-i",
-            "cmd.exe /c `"C:\Users\Public\Desktop\GoTo.exe`""
-        ) -PassThru -NoNewWindow -Wait -ErrorAction SilentlyContinue
-        
-        if ($process2.ExitCode -eq 0) {
-            Write-Host "   ✅ Aplicativo aberto com sucesso (via CMD)" -ForegroundColor Green
-            Write-Log "SUCESSO: GoTo.exe aberto via CMD"
-            return $true
+        # MÉTODO 2: Usar WMIC (alternativo)
+        Write-Host "   🔧 Método 2: WMIC..." -ForegroundColor Gray
+        try {
+            $wmicResult = Invoke-Expression "wmic /node:$ComputerName process call create 'C:\Users\Public\Desktop\GoTo.exe'" 2>$null
+            if ($wmicResult -match "ProcessId.*([0-9]+)") {
+                Write-Host "   ✅ Aplicativo aberto com sucesso (WMIC)" -ForegroundColor Green
+                Write-Log "SUCESSO: GoTo.exe aberto via WMIC"
+                return $true
+            }
+        } catch {
+            Write-Log "AVISO: Método WMIC falhou - $($_.Exception.Message)"
         }
         
-        # TERCEIRO: Tentar encontrar e usar Desktop do usuário logado
-        Write-Host "   🔧 Método 3: Desktop do usuário..." -ForegroundColor Gray
+        # MÉTODO 3: Usar PsExec com approach diferente
+        Write-Host "   🔧 Método 3: PsExec alternativo..." -ForegroundColor Gray
+        try {
+            # Tentar executar como sistema interativo
+            $process = Start-Process -FilePath "PsExec.exe" -ArgumentList @(
+                "\\$ComputerName",
+                "-s",
+                "-i",
+                "cmd.exe /c start `"`" `"C:\Users\Public\Desktop\GoTo.exe`""
+            ) -PassThru -NoNewWindow -Wait -ErrorAction SilentlyContinue
+            
+            if ($process.ExitCode -eq 0) {
+                Write-Host "   ✅ Aplicativo aberto com sucesso (PsExec)" -ForegroundColor Green
+                Write-Log "SUCESSO: GoTo.exe aberto via PsExec"
+                return $true
+            }
+        } catch {
+            Write-Log "AVISO: Método PsExec falhou - $($_.Exception.Message)"
+        }
+        
+        # MÉTODO 4: Tentar com usuário específico se encontrado
+        Write-Host "   🔧 Método 4: Buscar usuário..." -ForegroundColor Gray
         $loggedInUser = Get-WmiObject -Class Win32_ComputerSystem -ComputerName $ComputerName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty UserName
         
         if ($loggedInUser) {
             $userName = $loggedInUser.Split('\')[-1]
-            $process3 = Start-Process -FilePath "PsExec.exe" -ArgumentList @(
-                "\\$ComputerName",
-                "-i",
-                "`"C:\Users\$userName\Desktop\GoTo.exe`""
-            ) -PassThru -NoNewWindow -Wait -ErrorAction SilentlyContinue
-            
-            if ($process3.ExitCode -eq 0) {
-                Write-Host "   ✅ Aplicativo aberto com sucesso (usuário: $userName)" -ForegroundColor Green
-                Write-Log "SUCESSO: GoTo.exe aberto via Desktop do usuário $userName"
-                return $true
+            try {
+                $result = Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList "C:\Users\$userName\Desktop\GoTo.exe" -ComputerName $ComputerName -ErrorAction SilentlyContinue
+                if ($result.ReturnValue -eq 0) {
+                    Write-Host "   ✅ Aplicativo aberto com sucesso (usuário: $userName)" -ForegroundColor Green
+                    Write-Log "SUCESSO: GoTo.exe aberto via WMI para usuário $userName"
+                    return $true
+                }
+            } catch {
+                Write-Log "AVISO: Método WMI com usuário falhou - $($_.Exception.Message)"
             }
         }
         
-        Write-Host "   ⚠ Não foi possível abrir o aplicativo" -ForegroundColor Yellow
+        Write-Host "   ⚠ Não foi possível abrir o aplicativo automaticamente" -ForegroundColor Yellow
         Write-Log "AVISO: Todos os métodos falharam para abrir GoTo.exe"
+        Write-Host "   💡 O arquivo foi copiado para a Área de Trabalho como GoTo.exe" -ForegroundColor Gray
+        Write-Host "   💡 Execute manualmente com duplo-clique quando necessário" -ForegroundColor Gray
         return $false
         
     } catch {
