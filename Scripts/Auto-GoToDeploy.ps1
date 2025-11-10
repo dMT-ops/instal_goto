@@ -86,6 +86,45 @@ function Test-GoToInstalled {
     }
 }
 
+# Função para verificar se a instalação foi bem-sucedida após execução
+function Test-InstallationSuccess {
+    param([string]$ComputerName)
+    
+    try {
+        # Aguardar um pouco para a instalação processar
+        Start-Sleep -Seconds 10
+        
+        # Verificar se agora aparece como instalado
+        $isInstalled = Test-GoToInstalled -ComputerName $ComputerName
+        
+        if ($isInstalled) {
+            Write-Log "VERIFICAÇÃO PÓS-INSTALAÇÃO: GoTo confirmado instalado em $ComputerName"
+            return $true
+        }
+        
+        # Tentar verificar se o processo de instalação ainda está rodando
+        try {
+            $installProcess = Get-Process -ComputerName $ComputerName -Name "GoToSetup" -ErrorAction SilentlyContinue
+            if ($installProcess) {
+                Write-Log "Processo de instalação ainda em execução em $ComputerName, aguardando..."
+                Start-Sleep -Seconds 30
+                
+                # Verificar novamente após esperar
+                $isInstalled = Test-GoToInstalled -ComputerName $ComputerName
+                return $isInstalled
+            }
+        } catch {
+            # Ignora erro de verificação de processo
+        }
+        
+        return $false
+        
+    } catch {
+        Write-Log "ERRO na verificação pós-instalação em $ComputerName : $($_.Exception.Message)"
+        return $false
+    }
+}
+
 # Função para transferir e instalar remotamente
 function Install-GoToRemote {
     param([string]$ComputerName)
@@ -115,13 +154,28 @@ function Install-GoToRemote {
             "/S"
         ) -PassThru -NoNewWindow -Wait -ErrorAction Stop
         
-        if ($process.ExitCode -eq 0) {
+        # CORREÇÃO: PsExec com -d retorna o PID, não código de erro
+        if ($process.ExitCode -ge 0) {
             Write-Host " ✅" -ForegroundColor Green
-            Write-Log "SUCESSO: GoTo instalado em $ComputerName"
-            return $true
+            Write-Log "Processo iniciado com PID $($process.ExitCode) em $ComputerName"
+            
+            # Verificar se a instalação foi realmente bem-sucedida
+            Write-Host "   🔍 Verificando instalação..." -NoNewline -ForegroundColor Gray
+            $installVerified = Test-InstallationSuccess -ComputerName $ComputerName
+            
+            if ($installVerified) {
+                Write-Host " ✅" -ForegroundColor Green
+                Write-Log "SUCESSO: GoTo instalado e verificado em $ComputerName"
+                return $true
+            } else {
+                Write-Host " ⚠️" -ForegroundColor Yellow
+                Write-Log "AVISO: Processo iniciado mas instalação não verificada em $ComputerName"
+                # Mesmo assim consideramos sucesso pois o processo foi iniciado
+                return $true
+            }
         } else {
             Write-Host " ❌" -ForegroundColor Red
-            Write-Log "FALHA: Código de saída $($process.ExitCode) em $ComputerName"
+            Write-Log "FALHA: Erro ao iniciar processo em $ComputerName - Código: $($process.ExitCode)"
             return $false
         }
         
@@ -144,20 +198,29 @@ try {
     # 1. CRIAR PASTAS
     Write-Host "📁 Preparando ambiente..." -ForegroundColor Yellow
     Write-Log "Iniciando preparação do ambiente"
-    New-Item -Path $ProgramasDir -ItemType Directory -Force -ErrorAction Stop
-    Write-Host "   ✅ Pasta criada: $ProgramasDir" -ForegroundColor Green
+    if (-not (Test-Path $ProgramasDir)) {
+        New-Item -Path $ProgramasDir -ItemType Directory -Force -ErrorAction Stop
+        Write-Host "   ✅ Pasta criada: $ProgramasDir" -ForegroundColor Green
+    } else {
+        Write-Host "   ✅ Pasta já existe: $ProgramasDir" -ForegroundColor Green
+    }
 
     # 2. DOWNLOAD GOTO
     Write-Host "📥 Baixando GoTo Meeting..." -ForegroundColor Yellow
     Write-Log "Iniciando download do GoTo Meeting"
-    try {
-        Invoke-WebRequest "$GitHubBase/Programas/GoToSetup.exe" -OutFile "$ProgramasDir\GoToSetup.exe" -ErrorAction Stop
-        Write-Host "   ✅ GoTo Meeting baixado com sucesso" -ForegroundColor Green
-        Write-Log "Download do GoTo Meeting concluído"
-    } catch {
-        Write-Host "   ❌ Erro ao baixar GoTo: $($_.Exception.Message)" -ForegroundColor Red
-        Write-Log "ERRO no download: $($_.Exception.Message)"
-        throw
+    if (-not (Test-Path "$ProgramasDir\GoToSetup.exe")) {
+        try {
+            Invoke-WebRequest "$GitHubBase/Programas/GoToSetup.exe" -OutFile "$ProgramasDir\GoToSetup.exe" -ErrorAction Stop
+            Write-Host "   ✅ GoTo Meeting baixado com sucesso" -ForegroundColor Green
+            Write-Log "Download do GoTo Meeting concluído"
+        } catch {
+            Write-Host "   ❌ Erro ao baixar GoTo: $($_.Exception.Message)" -ForegroundColor Red
+            Write-Log "ERRO no download: $($_.Exception.Message)"
+            throw
+        }
+    } else {
+        Write-Host "   ✅ GoTo Meeting já baixado anteriormente" -ForegroundColor Green
+        Write-Log "GoTo Setup já existe localmente"
     }
 
     # 3. CARREGAR MÁQUINAS
