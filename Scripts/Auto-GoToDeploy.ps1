@@ -32,7 +32,7 @@ New-Item -Path $ToolsDir, $ProgramasDir -ItemType Directory -Force -ErrorAction 
 # } catch {
    # Write-Host "   ❌ Erro ao baixar PsExec: $($_.Exception.Message)" -ForegroundColor Red
    # exit
-}
+# }
 
 # 3. DOWNLOAD GOTO
 Write-Host "📥 Baixando GoTo Meeting..." -ForegroundColor Yellow
@@ -122,5 +122,6 @@ Write-Host ""
 # Aguardar entrada do usuário
 
 Read-Host "Pressione Enter para sair"
+
 
 
