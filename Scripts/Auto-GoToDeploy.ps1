@@ -14,6 +14,127 @@ function Write-Log {
     Write-Host "$timestamp - $Message" -ForegroundColor Gray
 }
 
+# Função para verificar se o GoTo está instalado
+function Test-GoToInstalled {
+    $installPaths = @(
+        "C:\Program Files\GoTo\*",
+        "C:\Program Files (x86)\GoTo\*",
+        "$env:LOCALAPPDATA\GoTo\*",
+        "$env:PROGRAMFILES\GoTo\*",
+        "$env:PROGRAMFILES(X86)\GoTo\*"
+    )
+    
+    foreach ($path in $installPaths) {
+        if (Test-Path $path) {
+            return $true
+        }
+    }
+    return $false
+}
+
+# Função para executar o GoTo Meeting
+function Start-GoToMeeting {
+    Write-Host "🚀 Iniciando GoTo Meeting..." -ForegroundColor Yellow
+    Write-Log "Tentando iniciar GoTo Meeting"
+    
+    $gotoPaths = @(
+        "C:\Program Files\GoTo\G2M\G2MStart.exe",
+        "C:\Program Files (x86)\GoTo\G2M\G2MStart.exe",
+        "$env:PROGRAMFILES\GoTo\G2M\G2MStart.exe",
+        "$env:PROGRAMFILES(X86)\GoTo\G2M\G2MStart.exe",
+        "$env:LOCALAPPDATA\GoTo\G2M\G2MStart.exe"
+    )
+    
+    foreach ($path in $gotoPaths) {
+        if (Test-Path $path) {
+            try {
+                Write-Host "   📍 Executando: $path" -ForegroundColor Gray
+                Write-Log "Executando GoTo: $path"
+                Start-Process -FilePath $path -ErrorAction Stop
+                Write-Host "   ✅ GoTo Meeting iniciado com sucesso!" -ForegroundColor Green
+                Write-Log "SUCESSO: GoTo Meeting iniciado"
+                return $true
+            } catch {
+                Write-Host "   ❌ Erro ao iniciar: $($_.Exception.Message)" -ForegroundColor Red
+                Write-Log "ERRO ao iniciar GoTo: $($_.Exception.Message)"
+            }
+        }
+    }
+    
+    # Tentar abrir via protocolo URL
+    try {
+        Write-Host "   🌐 Tentando abrir via URL..." -ForegroundColor Gray
+        Start-Process "g2mstart:"
+        Write-Host "   ✅ Comando de inicialização enviado" -ForegroundColor Green
+        Write-Log "GoTo iniciado via protocolo URL"
+        return $true
+    } catch {
+        Write-Host "   ❌ Não foi possível iniciar o GoTo Meeting" -ForegroundColor Red
+        Write-Log "FALHA: Não foi possível iniciar GoTo Meeting"
+        return $false
+    }
+}
+
+# Função para instalar localmente
+function Install-GoToLocal {
+    Write-Host ""
+    Write-Host "🔧 INSTALANDO GOTO LOCALMENTE..." -ForegroundColor Cyan
+    Write-Log "Iniciando instalação local do GoTo"
+    
+    $localSetup = "$ProgramasDir\GoToSetup.exe"
+    
+    if (-not (Test-Path $localSetup)) {
+        Write-Host "❌ Arquivo de instalação não encontrado: $localSetup" -ForegroundColor Red
+        Write-Log "ERRO: Arquivo de instalação local não encontrado"
+        return $false
+    }
+    
+    try {
+        Write-Host "📦 Executando instalação local..." -ForegroundColor Yellow
+        Write-Log "Executando instalação local: $localSetup /S"
+        
+        # Executar instalação local silenciosa
+        $process = Start-Process -FilePath $localSetup -ArgumentList "/S" -Wait -PassThru -NoNewWindow
+        
+        Write-Log "Instalação local finalizada com código: $($process.ExitCode)"
+        
+        # Aguardar um pouco para a instalação completar
+        Write-Host "   ⏳ Aguardando finalização da instalação..." -ForegroundColor Gray
+        Start-Sleep -Seconds 10
+        
+        # Verificar se foi instalado com sucesso
+        $isInstalled = Test-GoToInstalled
+        
+        if ($process.ExitCode -eq 0 -or $isInstalled) {
+            Write-Host "✅ GoTo instalado com SUCESSO nesta máquina" -ForegroundColor Green
+            Write-Log "SUCESSO: Instalação local concluída"
+            
+            # AGORA EXECUTA O GOTO PARA CONFIRMAR
+            Write-Host ""
+            Write-Host "🔍 CONFIRMANDO INSTALAÇÃO..." -ForegroundColor Cyan
+            $executionResult = Start-GoToMeeting
+            
+            if ($executionResult) {
+                Write-Host "🎉 CONFIRMADO: GoTo Meeting instalado e executado com sucesso!" -ForegroundColor Green
+                Write-Log "CONFIRMAÇÃO: GoTo instalado e executado com sucesso"
+            } else {
+                Write-Host "⚠ INSTALADO mas não foi possível executar automaticamente" -ForegroundColor Yellow
+                Write-Log "AVISO: GoTo instalado mas não executado automaticamente"
+            }
+            
+            return $true
+        } else {
+            Write-Host "❌ Falha na instalação local. Código: $($process.ExitCode)" -ForegroundColor Red
+            Write-Log "FALHA: Instalação local - Código: $($process.ExitCode)"
+            return $false
+        }
+    } catch {
+        Write-Host "💥 ERRO na instalação local: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Log "ERRO na instalação local: $($_.Exception.Message)"
+        return $false
+    }
+}
+
 # INÍCIO
 Clear-Host
 Write-Host "===============================================" -ForegroundColor Cyan
@@ -41,7 +162,37 @@ try {
         throw
     }
 
-    # 3. CARREGAR MÁQUINAS
+    # 3. INSTALAÇÃO LOCAL PRIMEIRO
+    $localInstallResult = Install-GoToLocal
+    
+    Write-Host ""
+    Write-Host "===============================================" -ForegroundColor Cyan
+    Write-Host "📍 RESULTADO DA INSTALAÇÃO LOCAL: " -NoNewline -ForegroundColor Cyan
+    if ($localInstallResult) {
+        Write-Host "SUCESSO COMPLETO ✅" -ForegroundColor Green
+        Write-Host "   ✓ GoTo instalado" -ForegroundColor Green
+        Write-Host "   ✓ GoTo executado com sucesso" -ForegroundColor Green
+    } else {
+        Write-Host "FALHA ❌" -ForegroundColor Red
+    }
+    Write-Host "===============================================" -ForegroundColor Cyan
+    
+    # Perguntar se deseja continuar com instalação remota
+    Write-Host ""
+    Write-Host "⏸️  Deseja continuar com a instalação nas outras máquinas?" -ForegroundColor Yellow
+    $continuar = Read-Host "Digite 'S' para continuar ou 'N' para parar (S/N)"
+    
+    if ($continuar -notmatch '^[Ss]$') {
+        Write-Host "Instalação remota cancelada pelo usuário" -ForegroundColor Yellow
+        Write-Log "Instalação remota cancelada pelo usuário"
+        Write-Host ""
+        Write-Host "Pressione Enter para finalizar..." -ForegroundColor Yellow
+        Read-Host
+        exit
+    }
+
+    # 4. CARREGAR MÁQUINAS
+    Write-Host ""
     Write-Host "📋 Obtendo lista de máquinas..." -ForegroundColor Yellow
     Write-Log "Carregando lista de máquinas"
     try {
@@ -55,11 +206,11 @@ try {
     }
 
     Write-Host ""
-    Write-Host "🔧 Iniciando instalação em $($computers.Count) máquinas..." -ForegroundColor Cyan
-    Write-Log "Iniciando processo de instalação em $($computers.Count) máquinas"
+    Write-Host "🔧 Iniciando instalação REMOTA em $($computers.Count) máquinas..." -ForegroundColor Cyan
+    Write-Log "Iniciando processo de instalação REMOTA em $($computers.Count) máquinas"
     Write-Host ""
 
-    # 4. INSTALAÇÃO (USANDO PSExec QUE VOCÊ JÁ TEM)
+    # 5. INSTALAÇÃO REMOTA
     $successCount = 0
     $offlineCount = 0
     $errorCount = 0
@@ -124,37 +275,44 @@ try {
     Write-Log "STACK TRACE: $($_.Exception.StackTrace)"
 }
 
-# 5. RESUMO FINAL (SEMPRE EXECUTADO)
+# 6. RESUMO FINAL
 Write-Host ""
 Write-Host "===============================================" -ForegroundColor Cyan
 Write-Host "           📊 RESUMO DA INSTALAÇÃO" -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "✅ Instalado com sucesso: $successCount" -ForegroundColor Green
+Write-Host "📍 Instalação LOCAL: " -NoNewline -ForegroundColor White
+if ($localInstallResult) {
+    Write-Host "SUCESSO COMPLETO ✅" -ForegroundColor Green
+} else {
+    Write-Host "FALHA ❌" -ForegroundColor Red
+}
+Write-Host "✅ Instalado com sucesso (remoto): $successCount" -ForegroundColor Green
 Write-Host "📴 Máquinas offline: $offlineCount" -ForegroundColor Gray
-Write-Host "❌ Erros/Falhas: $errorCount" -ForegroundColor Red
-Write-Host "📊 Total de máquinas: $($computers.Count)" -ForegroundColor White
+Write-Host "❌ Erros/Falhas (remoto): $errorCount" -ForegroundColor Red
+Write-Host "📊 Total de máquinas remotas: $($computers.Count)" -ForegroundColor White
 Write-Host "📄 Log detalhado: $LogFile" -ForegroundColor Cyan
 
 Write-Log "=== RESUMO FINAL ==="
-Write-Log "Sucessos: $successCount"
+Write-Log "Instalação Local: $(if ($localInstallResult) {'SUCESSO COMPLETO'} else {'FALHA'})"
+Write-Log "Sucessos Remotos: $successCount"
 Write-Log "Offline: $offlineCount"
 Write-Log "Erros: $errorCount"
-Write-Log "Total: $($computers.Count)"
+Write-Log "Total Máquinas Remotas: $($computers.Count)"
 
 if ($successCount -eq $computers.Count) {
-    Write-Host "🎉 TODAS AS MÁQUINAS FORAM INSTALADAS!" -ForegroundColor Green
-    Write-Log "STATUS: Todas as máquinas instaladas com sucesso"
+    Write-Host "🎉 TODAS AS MÁQUINAS REMOTAS FORAM INSTALADAS!" -ForegroundColor Green
+    Write-Log "STATUS: Todas as máquinas remotas instaladas com sucesso"
 } elseif ($successCount -gt 0) {
-    Write-Host "⚠ Instalação parcialmente concluída" -ForegroundColor Yellow
-    Write-Log "STATUS: Instalação parcialmente concluída"
+    Write-Host "⚠ Instalação remota parcialmente concluída" -ForegroundColor Yellow
+    Write-Log "STATUS: Instalação remota parcialmente concluída"
 } else {
-    Write-Host "💥 NENHUMA INSTALAÇÃO BEM-SUCEDIDA" -ForegroundColor Red
-    Write-Log "STATUS: Nenhuma instalação bem-sucedida"
+    Write-Host "💥 NENHUMA INSTALAÇÃO REMOTA BEM-SUCEDIDA" -ForegroundColor Red
+    Write-Log "STATUS: Nenhuma instalação remota bem-sucedida"
 }
 
 Write-Host "===============================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Aguardar entrada do usuário (NUNCA FECHA SOZINHO)
+# Aguardar entrada do usuário
 Write-Host "Pressione Enter para finalizar..." -ForegroundColor Yellow
 Read-Host
