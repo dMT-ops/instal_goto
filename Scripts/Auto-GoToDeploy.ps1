@@ -67,17 +67,6 @@ function Test-GoToInstalled {
             }
         }
         
-        # Método 3: Verificar processos em execução
-        try {
-            $processes = Get-Process -ComputerName $ComputerName -Name "*goto*","*logmein*" -ErrorAction SilentlyContinue
-            if ($processes) {
-                Write-Log "Processo GoTo em execução encontrado em $ComputerName"
-                return $true
-            }
-        } catch {
-            # Process check failed, continue
-        }
-        
         return $false
         
     } catch {
@@ -86,46 +75,51 @@ function Test-GoToInstalled {
     }
 }
 
-# Função para verificar se a instalação foi bem-sucedida após execução
-function Test-InstallationSuccess {
+# Função para copiar atalho para área de trabalho
+function Copy-DesktopShortcut {
     param([string]$ComputerName)
     
     try {
-        # Aguardar um pouco para a instalação processar
-        Start-Sleep -Seconds 10
+        Write-Log "Copiando atalho para área de trabalho em: $ComputerName"
         
-        # Verificar se agora aparece como instalado
-        $isInstalled = Test-GoToInstalled -ComputerName $ComputerName
+        # Caminhos possíveis para área de trabalho
+        $desktopPaths = @(
+            "\\$ComputerName\C$\Users\Public\Desktop",
+            "\\$ComputerName\C$\Users\*\Desktop"
+        )
         
-        if ($isInstalled) {
-            Write-Log "VERIFICAÇÃO PÓS-INSTALAÇÃO: GoTo confirmado instalado em $ComputerName"
-            return $true
-        }
-        
-        # Tentar verificar se o processo de instalação ainda está rodando
-        try {
-            $installProcess = Get-Process -ComputerName $ComputerName -Name "GoToSetup" -ErrorAction SilentlyContinue
-            if ($installProcess) {
-                Write-Log "Processo de instalação ainda em execução em $ComputerName, aguardando..."
-                Start-Sleep -Seconds 30
+        foreach ($desktopPath in $desktopPaths) {
+            if (Test-Path $desktopPath -ErrorAction SilentlyContinue) {
+                # Criar atalho do GoTo
+                $shortcutPath = Join-Path $desktopPath "GoTo Meeting.lnk"
                 
-                # Verificar novamente após esperar
-                $isInstalled = Test-GoToInstalled -ComputerName $ComputerName
-                return $isInstalled
+                # Se já existir, remover primeiro
+                if (Test-Path $shortcutPath) {
+                    Remove-Item $shortcutPath -Force -ErrorAction SilentlyContinue
+                }
+                
+                # Copiar o executável como "atalho" (simulando um atalho)
+                $sourceExe = "\\$ComputerName\C$\Programas\GoToSetup.exe"
+                $destExe = Join-Path $desktopPath "Instalar GoTo Meeting.exe"
+                
+                if (Test-Path $sourceExe) {
+                    Copy-Item $sourceExe $destExe -Force -ErrorAction Stop
+                    Write-Log "Atalho copiado para: $destExe"
+                    return $true
+                }
             }
-        } catch {
-            # Ignora erro de verificação de processo
         }
         
+        Write-Log "Nenhuma área de trabalho encontrada em $ComputerName"
         return $false
         
     } catch {
-        Write-Log "ERRO na verificação pós-instalação em $ComputerName : $($_.Exception.Message)"
+        Write-Log "ERRO ao copiar atalho para $ComputerName : $($_.Exception.Message)"
         return $false
     }
 }
 
-# Função para transferir e instalar remotamente
+# Função para instalar usando diferentes métodos
 function Install-GoToRemote {
     param([string]$ComputerName)
     
@@ -144,45 +138,113 @@ function Install-GoToRemote {
         Copy-Item "$ProgramasDir\GoToSetup.exe" "$remoteProgramasDir\GoToSetup.exe" -Force -ErrorAction Stop
         Write-Host " ✅" -ForegroundColor Green
         
-        # Instalar silenciosamente via PsExec
-        Write-Host "   🔧 Instalando..." -NoNewline -ForegroundColor Gray
-        $process = Start-Process -FilePath "PsExec.exe" -ArgumentList @(
-            "\\$ComputerName",
-            "-s",
-            "-d",
-            "`"$remoteProgramasDir\GoToSetup.exe`"",
-            "/S"
-        ) -PassThru -NoNewWindow -Wait -ErrorAction Stop
-        
-        # CORREÇÃO: PsExec com -d retorna o PID, não código de erro
-        if ($process.ExitCode -ge 0) {
-            Write-Host " ✅" -ForegroundColor Green
-            Write-Log "Processo iniciado com PID $($process.ExitCode) em $ComputerName"
-            
-            # Verificar se a instalação foi realmente bem-sucedida
-            Write-Host "   🔍 Verificando instalação..." -NoNewline -ForegroundColor Gray
-            $installVerified = Test-InstallationSuccess -ComputerName $ComputerName
-            
-            if ($installVerified) {
-                Write-Host " ✅" -ForegroundColor Green
-                Write-Log "SUCESSO: GoTo instalado e verificado em $ComputerName"
-                return $true
-            } else {
-                Write-Host " ⚠️" -ForegroundColor Yellow
-                Write-Log "AVISO: Processo iniciado mas instalação não verificada em $ComputerName"
-                # Mesmo assim consideramos sucesso pois o processo foi iniciado
-                return $true
+        # Tentar diferentes métodos de instalação
+        $installationMethods = @(
+            @{
+                Name = "Método 1 (PsExec silencioso)"
+                Command = "PsExec.exe"
+                Args = @("\\$ComputerName", "-s", "cmd.exe", "/c", "`"$remoteProgramasDir\GoToSetup.exe`"", "/silent", "/install")
+            },
+            @{
+                Name = "Método 2 (WMIC)"
+                Command = "WMIC"
+                Args = @("/node:`"$ComputerName`"", "process", "call", "create", "`"$remoteProgramasDir\GoToSetup.exe /silent /install`"")
+            },
+            @{
+                Name = "Método 3 (Invoke-Command)"
+                Command = "PowerShell"
+                Args = @("-Command", "Invoke-Command -ComputerName `"$ComputerName`" -ScriptBlock { Start-Process `"$remoteProgramasDir\GoToSetup.exe`" -ArgumentList '/silent','/install' -Wait }")
             }
+        )
+        
+        foreach ($method in $installationMethods) {
+            Write-Host "   🔧 Tentando $($method.Name)..." -NoNewline -ForegroundColor Gray
+            
+            try {
+                if ($method.Command -eq "PowerShell") {
+                    # Para PowerShell, executar diretamente
+                    $process = Start-Process -FilePath "powershell.exe" -ArgumentList $method.Args -PassThru -NoNewWindow -Wait -ErrorAction Stop
+                } else {
+                    # Para outros comandos
+                    $process = Start-Process -FilePath $method.Command -ArgumentList $method.Args -PassThru -NoNewWindow -Wait -ErrorAction Stop
+                }
+                
+                if ($process.ExitCode -eq 0 -or $process.ExitCode -eq 3010) {
+                    Write-Host " ✅" -ForegroundColor Green
+                    Write-Log "SUCESSO: $($method.Name) em $ComputerName - Código: $($process.ExitCode)"
+                    
+                    # Aguardar um pouco para instalação processar
+                    Start-Sleep -Seconds 15
+                    
+                    # Verificar se foi instalado com sucesso
+                    $isInstalled = Test-GoToInstalled -ComputerName $ComputerName
+                    
+                    if ($isInstalled) {
+                        Write-Log "INSTALAÇÃO CONFIRMADA: GoTo instalado em $ComputerName"
+                        
+                        # Copiar para área de trabalho
+                        Write-Host "   🖥️  Copiando para área de trabalho..." -NoNewline -ForegroundColor Gray
+                        $copyResult = Copy-DesktopShortcut -ComputerName $ComputerName
+                        if ($copyResult) {
+                            Write-Host " ✅" -ForegroundColor Green
+                        } else {
+                            Write-Host " ⚠️" -ForegroundColor Yellow
+                        }
+                        
+                        return $true
+                    } else {
+                        Write-Log "AVISO: Processo concluído mas instalação não verificada em $ComputerName"
+                        # Mesmo assim consideramos sucesso e copiamos para área de trabalho
+                        Write-Host "   🖥️  Copiando para área de trabalho..." -NoNewline -ForegroundColor Gray
+                        $copyResult = Copy-DesktopShortcut -ComputerName $ComputerName
+                        if ($copyResult) {
+                            Write-Host " ✅" -ForegroundColor Green
+                        } else {
+                            Write-Host " ⚠️" -ForegroundColor Yellow
+                        }
+                        return $true
+                    }
+                } else {
+                    Write-Host " ❌" -ForegroundColor Red
+                    Write-Log "FALHA: $($method.Name) em $ComputerName - Código: $($process.ExitCode)"
+                }
+            } catch {
+                Write-Host " ❌" -ForegroundColor Red
+                Write-Log "ERRO: $($method.Name) em $ComputerName - $($_.Exception.Message)"
+            }
+        }
+        
+        # Se todos os métodos falharam, pelo menos copiar para área de trabalho
+        Write-Host "   🖥️  Copiando arquivo para área de trabalho..." -NoNewline -ForegroundColor Gray
+        $copyResult = Copy-DesktopShortcut -ComputerName $ComputerName
+        if ($copyResult) {
+            Write-Host " ✅" -ForegroundColor Green
+            Write-Log "Arquivo copiado para área de trabalho em $ComputerName (instalação manual necessária)"
         } else {
             Write-Host " ❌" -ForegroundColor Red
-            Write-Log "FALHA: Erro ao iniciar processo em $ComputerName - Código: $($process.ExitCode)"
-            return $false
+            Write-Log "FALHA ao copiar para área de trabalho em $ComputerName"
         }
+        
+        return $false
         
     } catch {
         Write-Host " ❌" -ForegroundColor Red
         Write-Host "   💥 Erro: $($_.Exception.Message)" -ForegroundColor Red
         Write-Log "ERRO em $ComputerName : $($_.Exception.Message)"
+        
+        # Tentar copiar para área de mesmo em caso de erro
+        try {
+            Write-Host "   🖥️  Tentando copiar para área de trabalho..." -NoNewline -ForegroundColor Gray
+            $copyResult = Copy-DesktopShortcut -ComputerName $ComputerName
+            if ($copyResult) {
+                Write-Host " ✅" -ForegroundColor Green
+            } else {
+                Write-Host " ❌" -ForegroundColor Red
+            }
+        } catch {
+            Write-Host " ❌" -ForegroundColor Red
+        }
+        
         return $false
     }
 }
@@ -267,6 +329,16 @@ try {
             if ($isAlreadyInstalled) {
                 Write-Host "📦 JÁ INSTALADO" -ForegroundColor Blue
                 Write-Log "GoTo já está instalado em $computer - Pulando instalação"
+                
+                # Copiar para área de trabalho mesmo se já estiver instalado
+                Write-Host "   🖥️  Copiando para área de trabalho..." -NoNewline -ForegroundColor Gray
+                $copyResult = Copy-DesktopShortcut -ComputerName $computer
+                if ($copyResult) {
+                    Write-Host " ✅" -ForegroundColor Green
+                } else {
+                    Write-Host " ⚠️" -ForegroundColor Yellow
+                }
+                
                 $alreadyInstalledComputers += $computer
             } else {
                 Write-Host "[Não Encontrado] " -NoNewline -ForegroundColor Yellow
@@ -287,6 +359,8 @@ try {
             Write-Log "OFFLINE: $computer - Máquina não respondeu ao ping"
             $offlineComputers += $computer
         }
+        
+        Write-Host ""
     }
 
 } catch {
