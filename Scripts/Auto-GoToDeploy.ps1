@@ -135,7 +135,7 @@ function Install-GoToLocal {
     }
 }
 
-# Função para transferir arquivos para máquinas remotas
+# Função para transferir arquivos para máquinas remotas (ÁREA DE TRABALHO)
 function Transfer-FilesToRemote {
     param([string]$ComputerName)
     
@@ -145,16 +145,49 @@ function Transfer-FilesToRemote {
         # Criar pasta Programas na máquina remota
         $remoteProgramasDir = "\\$ComputerName\C$\Programas"
         
-        Write-Host "   📁 Criando pasta remota..." -ForegroundColor Gray
+        Write-Host "   📁 Criando pasta Programas..." -ForegroundColor Gray
         New-Item -Path $remoteProgramasDir -ItemType Directory -Force -ErrorAction Stop | Out-Null
         
-        # Copiar arquivo para máquina remota
-        Write-Host "   📤 Copiando arquivo..." -ForegroundColor Gray
+        # Copiar arquivo para pasta Programas
+        Write-Host "   📤 Copiando para Programas..." -ForegroundColor Gray
         Copy-Item "$ProgramasDir\GoToSetup.exe" "$remoteProgramasDir\GoToSetup.exe" -Force -ErrorAction Stop
         
-        # Verificar se o arquivo foi copiado com sucesso
+        # AGORA COPIAR PARA A ÁREA DE TRABALHO
+        Write-Host "   🖥️  Copiando para Área de Trabalho..." -ForegroundColor Gray
+        
+        # Encontrar a pasta Desktop/Área de Trabalho
+        $desktopPaths = @(
+            "\\$ComputerName\C$\Users\Public\Desktop",
+            "\\$ComputerName\C$\Users\*\Desktop",
+            "\\$ComputerName\C$\Documents and Settings\All Users\Desktop"
+        )
+        
+        $desktopFound = $false
+        
+        foreach ($desktopPath in $desktopPaths) {
+            $resolvedPaths = Get-ChildItem -Path $desktopPath -ErrorAction SilentlyContinue
+            foreach ($path in $resolvedPaths) {
+                if (Test-Path $path.FullName) {
+                    $desktopDir = $path.FullName
+                    Copy-Item "$ProgramasDir\GoToSetup.exe" "$desktopDir\GoToSetup.exe" -Force -ErrorAction SilentlyContinue
+                    
+                    if (Test-Path "$desktopDir\GoToSetup.exe") {
+                        Write-Host "   ✅ Copiado para Área de Trabalho" -ForegroundColor Green
+                        Write-Log "SUCESSO: Arquivo copiado para Área de Trabalho em $ComputerName"
+                        $desktopFound = $true
+                        break
+                    }
+                }
+            }
+            if ($desktopFound) { break }
+        }
+        
+        # Verificar se pelo menos o arquivo foi copiado para Programas
         if (Test-Path "$remoteProgramasDir\GoToSetup.exe") {
-            Write-Host "   ✅ Arquivo transferido com sucesso" -ForegroundColor Green
+            if (-not $desktopFound) {
+                Write-Host "   ⚠ Copiado apenas para Programas" -ForegroundColor Yellow
+                Write-Log "AVISO: Arquivo copiado apenas para Programas em $ComputerName"
+            }
             Write-Log "SUCESSO: Arquivo transferido para $ComputerName"
             return $true
         } else {
@@ -215,7 +248,7 @@ try {
     # Perguntar se deseja continuar com transferência remota
     Write-Host ""
     Write-Host "⏸️  Deseja transferir o instalador para outras máquinas?" -ForegroundColor Yellow
-    Write-Host "   (O arquivo será copiado para C:\Programas\ nas máquinas remotas)" -ForegroundColor Gray
+    Write-Host "   (O arquivo será copiado para C:\Programas\ e Área de Trabalho)" -ForegroundColor Gray
     $continuar = Read-Host "Digite 'S' para continuar ou 'N' para parar (S/N)"
     
     if ($continuar -notmatch '^[Ss]$') {
@@ -323,7 +356,9 @@ if ($successCount -eq $computers.Count) {
 }
 
 Write-Host ""
-Write-Host "💡 Os arquivos foram copiados para: C:\Programas\GoToSetup.exe" -ForegroundColor Cyan
+Write-Host "💡 Os arquivos foram copiados para:" -ForegroundColor Cyan
+Write-Host "   • C:\Programas\GoToSetup.exe" -ForegroundColor Cyan
+Write-Host "   • Área de Trabalho\GoToSetup.exe" -ForegroundColor Cyan
 Write-Host "💡 Nas máquinas remotas, execute manualmente o instalador quando necessário" -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 Write-Host ""
