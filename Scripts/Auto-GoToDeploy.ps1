@@ -3,7 +3,6 @@
 
 # Configurações
 $GitHubBase = "https://github.com/dMT-ops/instal_goto/raw/main"
-$ToolsDir = "C:\Tools"
 $ProgramasDir = "C:\Programas"
 $LogFile = "C:\GoToInstall.log"
 
@@ -22,19 +21,9 @@ Write-Host ""
 
 # 1. CRIAR PASTAS
 Write-Host "📁 Preparando ambiente..." -ForegroundColor Yellow
-New-Item -Path $ToolsDir, $ProgramasDir -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
+New-Item -Path $ProgramasDir -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
 
-# 2. DOWNLOAD PSExec
-  Write-Host "📥 Baixando PsExec..." -ForegroundColor Yellow
- try {
-    Invoke-WebRequest "$GitHubBase/Tools/PsExec.exe" -OutFile "$ToolsDir\PsExec.exe" -ErrorAction Stop
-    Write-Host "   ✅ PsExec baixado" -ForegroundColor Green
- } catch {
-    Write-Host "   ❌ Erro ao baixar PsExec: $($_.Exception.Message)" -ForegroundColor Red
-    exit
-}
-
-# 3. DOWNLOAD GOTO
+# 2. DOWNLOAD GOTO
 Write-Host "📥 Baixando GoTo Meeting..." -ForegroundColor Yellow
 try {
     Invoke-WebRequest "$GitHubBase/Programas/GoToSetup.exe" -OutFile "$ProgramasDir\GoToSetup.exe" -ErrorAction Stop
@@ -44,7 +33,7 @@ try {
     exit
 }
 
-# 4. CARREGAR MÁQUINAS
+# 3. CARREGAR MÁQUINAS
 Write-Host "📋 Obtendo lista de máquinas..." -ForegroundColor Yellow
 try {
     $computers = (Invoke-WebRequest "$GitHubBase/Config/maquinas.txt").Content -split "`n" | Where-Object { $_ -and $_.Trim() }
@@ -58,7 +47,7 @@ Write-Host ""
 Write-Host "🔧 Iniciando instalação em $($computers.Count) máquinas..." -ForegroundColor Cyan
 Write-Host ""
 
-# 5. INSTALAÇÃO
+# 4. INSTALAÇÃO (USANDO PSExec QUE VOCÊ JÁ TEM)
 $successCount = 0
 $offlineCount = 0
 $errorCount = 0
@@ -70,8 +59,8 @@ foreach ($computer in $computers) {
     # Verificar se máquina está online
     if (Test-Connection -ComputerName $computer -Count 1 -Quiet -ErrorAction SilentlyContinue) {
         try {
-            # Instalação silenciosa com PsExec
-            $process = Start-Process -FilePath "$ToolsDir\PsExec.exe" -ArgumentList @(
+            # Instalação silenciosa com PsExec (USANDO O QUE JÁ ESTÁ INSTALADO)
+            $process = Start-Process -FilePath "PsExec.exe" -ArgumentList @(
                 "\\$computer", "-s", "-h", "-d", "-c", "-f",
                 "`"$ProgramasDir\GoToSetup.exe`"", "/S"
             ) -PassThru -NoNewWindow -Wait -ErrorAction Stop
@@ -97,7 +86,7 @@ foreach ($computer in $computers) {
     }
 }
 
-# 6. RESUMO FINAL
+# 5. RESUMO FINAL
 Write-Host ""
 Write-Host "===============================================" -ForegroundColor Cyan
 Write-Host "           📊 RESUMO DA INSTALAÇÃO" -ForegroundColor Cyan
@@ -120,6 +109,4 @@ Write-Host "===============================================" -ForegroundColor Cy
 Write-Host ""
 
 # Aguardar entrada do usuário
-
 Read-Host "Pressione Enter para sair"
-
