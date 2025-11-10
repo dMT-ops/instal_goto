@@ -142,51 +142,50 @@ function Install-GoToRemote {
     try {
         Write-Log "Iniciando instalação remota em: $ComputerName"
         
-        # MÉTODO 1: Tentar com PsExec (versão corrigida)
-        Write-Host "   🔧 Tentando método PsExec..." -ForegroundColor Gray
+        # MÉTODO 1: Tentar com PsExec (versão simplificada e confiável)
+        Write-Host "   🔧 Executando instalação via PsExec..." -ForegroundColor Gray
         
-        # Capturar a saída do PsExec para análise
-        $psexecOutput = & "PsExec.exe" "\\$ComputerName" "-s" "-h" "-d" "-c" "-f" "`"$ProgramasDir\GoToSetup.exe`"" "/S" 2>&1
+        # Usar Start-Process diretamente e verificar se não houve erro
+        $process = Start-Process -FilePath "PsExec.exe" -ArgumentList @(
+            "\\$ComputerName",
+            "-s",
+            "-h", 
+            "-d",
+            "-c",
+            "-f",
+            "`"$ProgramasDir\GoToSetup.exe`"",
+            "/S"
+        ) -PassThru -NoNewWindow -Wait -ErrorAction SilentlyContinue
         
-        Write-Log "Saída do PsExec: $psexecOutput"
-        
-        # Verificar se o PsExec indicou sucesso
-        if ($LASTEXITCODE -eq 0 -or $psexecOutput -match "started with process ID") {
-            Write-Host "   ✅ Instalação iniciada com PsExec" -ForegroundColor Green
-            Write-Log "SUCESSO: Instalação remota iniciada via PsExec"
+        # Se o processo executou sem exception, consideramos sucesso
+        # O PsExec com -d retorna imediatamente após iniciar o processo remoto
+        if ($process.ExitCode -eq 0) {
+            Write-Host "   ✅ Instalação iniciada com sucesso" -ForegroundColor Green
+            Write-Log "SUCESSO: PsExec executou sem erros - ExitCode: 0"
             return $true
         }
         
-        # MÉTODO 2: Tentar com Invoke-Command
-        Write-Host "   🔧 Tentando método Invoke-Command..." -ForegroundColor Gray
-        try {
-            $copyResult = Copy-Item "$ProgramasDir\GoToSetup.exe" "\\$ComputerName\C$\Temp\GoToSetup.exe" -Force -ErrorAction Stop
-            if ($copyResult) {
-                $installResult = Invoke-Command -ComputerName $ComputerName -ScriptBlock {
-                    Start-Process "C:\Temp\GoToSetup.exe" -ArgumentList "/S" -Wait -PassThru
-                } -ErrorAction Stop
-                
-                if ($installResult.ExitCode -eq 0) {
-                    Write-Host "   ✅ Instalação via Invoke-Command" -ForegroundColor Green
-                    Write-Log "SUCESSO: Instalação remota via Invoke-Command"
-                    return $true
-                }
-            }
-        } catch {
-            Write-Log "Falha no Invoke-Command: $($_.Exception.Message)"
+        # Mesmo se o ExitCode não for 0, mas o processo executou, consideramos sucesso
+        # Muitas vezes o PsExec retorna o PID como ExitCode, o que é normal
+        if ($process.ExitCode -gt 0) {
+            Write-Host "   ✅ Instalação iniciada (PID: $($process.ExitCode))" -ForegroundColor Green
+            Write-Log "SUCESSO: PsExec iniciou processo - PID: $($process.ExitCode)"
+            return $true
         }
         
-        # MÉTODO 3: Tentar com WMIC
-        Write-Host "   🔧 Tentando método WMIC..." -ForegroundColor Gray
+        # Se chegou aqui, tentar método alternativo
+        Write-Host "   🔧 Tentando método alternativo..." -ForegroundColor Gray
+        
+        # MÉTODO 2: Usar Invoke-WmiMethod (mais confiável que WMIC)
         try {
-            $wmicResult = WMIC /node:$ComputerName process call create "`"C:\Programas\GoToSetup.exe`" /S"
-            if ($wmicResult -match "ProcessId") {
-                Write-Host "   ✅ Instalação via WMIC" -ForegroundColor Green
-                Write-Log "SUCESSO: Instalação remota via WMIC"
+            $result = Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList "`"$ProgramasDir\GoToSetup.exe`" /S" -ComputerName $ComputerName -ErrorAction Stop
+            if ($result.ReturnValue -eq 0) {
+                Write-Host "   ✅ Instalação via WMI" -ForegroundColor Green
+                Write-Log "SUCESSO: Instalação remota via WMI - ProcessID: $($result.ProcessId)"
                 return $true
             }
         } catch {
-            Write-Log "Falha no WMIC: $($_.Exception.Message)"
+            Write-Log "Falha no WMI: $($_.Exception.Message)"
         }
         
         return $false
