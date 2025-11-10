@@ -44,55 +44,25 @@ function Start-GoToMeeting {
         "C:\Program Files (x86)\GoTo\G2M\G2MStart.exe",
         "$env:PROGRAMFILES\GoTo\G2M\G2MStart.exe",
         "$env:PROGRAMFILES(X86)\GoTo\G2M\G2MStart.exe",
-        "$env:LOCALAPPDATA\GoTo\G2M\G2MStart.exe",
-        "C:\Users\*\AppData\Local\GoTo\G2M\G2MStart.exe"
+        "$env:LOCALAPPDATA\GoTo\G2M\G2MStart.exe"
     )
     
     # Buscar em todos os caminhos possíveis
-    foreach ($pathPattern in $gotoPaths) {
-        $resolvedPaths = Get-ChildItem -Path $pathPattern -ErrorAction SilentlyContinue
-        foreach ($path in $resolvedPaths) {
-            if (Test-Path $path.FullName) {
-                try {
-                    Write-Host "   📍 Executando: $($path.FullName)" -ForegroundColor Gray
-                    Write-Log "Executando GoTo: $($path.FullName)"
-                    
-                    # Executar diretamente sem confirmações
-                    $process = Start-Process -FilePath $path.FullName -PassThru -ErrorAction Stop
-                    
-                    # Aguardar um pouco para ver se iniciou
-                    Start-Sleep -Seconds 3
-                    
-                    if (-not $process.HasExited) {
-                        Write-Host "   ✅ GoTo Meeting iniciado com sucesso!" -ForegroundColor Green
-                        Write-Log "SUCESSO: GoTo Meeting iniciado - PID: $($process.Id)"
-                        return $true
-                    } else {
-                        Write-Host "   ⚠ GoTo abriu e fechou rapidamente" -ForegroundColor Yellow
-                        Write-Log "AVISO: GoTo abriu e fechou rapidamente"
-                    }
-                } catch {
-                    Write-Host "   ❌ Erro ao iniciar: $($_.Exception.Message)" -ForegroundColor Red
-                    Write-Log "ERRO ao iniciar GoTo: $($_.Exception.Message)"
-                }
+    foreach ($path in $gotoPaths) {
+        if (Test-Path $path) {
+            try {
+                Write-Host "   📍 Executando: $path" -ForegroundColor Gray
+                Write-Log "Executando GoTo: $path"
+                
+                # Executar diretamente sem confirmações
+                Start-Process -FilePath $path -ErrorAction Stop
+                Write-Host "   ✅ GoTo Meeting iniciado com sucesso!" -ForegroundColor Green
+                Write-Log "SUCESSO: GoTo Meeting iniciado"
+                return $true
+            } catch {
+                Write-Host "   ❌ Erro ao iniciar: $($_.Exception.Message)" -ForegroundColor Red
+                Write-Log "ERRO ao iniciar GoTo: $($_.Exception.Message)"
             }
-        }
-    }
-    
-    # Tentativa alternativa: procurar em todo o sistema
-    Write-Host "   🔍 Procurando GoTo no sistema..." -ForegroundColor Gray
-    $foundExe = Get-ChildItem -Path "C:\" -Recurse -Filter "G2MStart.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($foundExe) {
-        try {
-            Write-Host "   📍 Encontrado em: $($foundExe.FullName)" -ForegroundColor Gray
-            Write-Log "GoTo encontrado via busca: $($foundExe.FullName)"
-            Start-Process -FilePath $foundExe.FullName -ErrorAction Stop
-            Write-Host "   ✅ GoTo Meeting iniciado!" -ForegroundColor Green
-            Write-Log "SUCESSO: GoTo iniciado via busca"
-            return $true
-        } catch {
-            Write-Host "   ❌ Erro ao iniciar via busca" -ForegroundColor Red
-            Write-Log "ERRO ao iniciar via busca: $($_.Exception.Message)"
         }
     }
     
@@ -161,35 +131,6 @@ function Install-GoToLocal {
     } catch {
         Write-Host "💥 ERRO na instalação local: $($_.Exception.Message)" -ForegroundColor Red
         Write-Log "ERRO na instalação local: $($_.Exception.Message)"
-        return $false
-    }
-}
-
-# Função para verificar instalação remota - CORRIGIDA
-function Test-RemoteInstallation {
-    param([string]$ComputerName)
-    
-    try {
-        # Tentar verificar via serviço ou processo remoto
-        $service = Get-Service -ComputerName $ComputerName -Name "*goto*" -ErrorAction SilentlyContinue
-        if ($service) {
-            Write-Log "Serviço GoTo encontrado em $ComputerName : $($service.Name)"
-            return $true
-        }
-        
-        # Tentar verificar via registro - CORREÇÃO AQUI
-        $regTest = Invoke-Command -ComputerName $ComputerName -ScriptBlock { 
-            Test-Path "HKLM:\SOFTWARE\GoTo" 
-        } -ErrorAction SilentlyContinue
-        
-        if ($regTest) {
-            Write-Log "Registro GoTo encontrado em $ComputerName"
-            return $true
-        }
-        
-        return $false
-    } catch {
-        Write-Log "Erro ao verificar instalação remota em $ComputerName : $($_.Exception.Message)"
         return $false
     }
 }
@@ -269,7 +210,7 @@ try {
     Write-Log "Iniciando processo de instalação REMOTA em $($computers.Count) máquinas"
     Write-Host ""
 
-    # 5. INSTALAÇÃO REMOTA - VERSÃO CORRIGIDA
+    # 5. INSTALAÇÃO REMOTA - VERSÃO SIMPLIFICADA
     $successCount = 0
     $offlineCount = 0
     $errorCount = 0
@@ -291,12 +232,12 @@ try {
                 Write-Host "[Instalando...] " -NoNewline -ForegroundColor Gray
                 Write-Log "$computer - Iniciando instalação com PsExec"
                 
-                # CORREÇÃO: Usar -d (don't wait) e verificar sucesso diferente
+                # Instalação silenciosa com PsExec - versão simplificada
                 $process = Start-Process -FilePath "PsExec.exe" -ArgumentList @(
                     "\\$computer",
                     "-s",
                     "-h",
-                    "-d",  # DON'T WAIT - deixa o processo rodando independentemente
+                    "-d",  # Não espera o processo terminar
                     "-c",
                     "-f",
                     "`"$ProgramasDir\GoToSetup.exe`"",
@@ -305,27 +246,11 @@ try {
                 
                 Write-Log "$computer - PsExec finalizado com código: $($process.ExitCode)"
                 
-                # CORREÇÃO: Se PsExec retornou 0, consideramos sucesso
-                # O PID (21160 no seu caso) não é erro, é o processo que foi iniciado
+                # Se PsExec retornou 0, consideramos sucesso (mesmo que seja PID)
                 if ($process.ExitCode -eq 0) {
                     Write-Host "✅ INSTALAÇÃO INICIADA" -ForegroundColor Green
-                    Write-Log "SUCESSO: $computer - Instalação GoTo iniciada com PID"
-                    
-                    # Aguardar um tempo para instalação remota
-                    Write-Host "   ⏳ Aguardando instalação remota..." -NoNewline -ForegroundColor Gray
-                    Start-Sleep -Seconds 30
-                    
-                    # Tentar verificar se foi instalado
-                    $remoteCheck = Test-RemoteInstallation -ComputerName $computer
-                    if ($remoteCheck) {
-                        Write-Host " ✅ CONFIRMADO" -ForegroundColor Green
-                        Write-Log "CONFIRMAÇÃO: $computer - GoTo instalado remotamente"
-                        $successCount++
-                    } else {
-                        Write-Host " ⚠ AGUARDANDO" -ForegroundColor Yellow
-                        Write-Log "AGUARDANDO: $computer - Instalação em andamento"
-                        $successCount++  # Considera sucesso pois o processo foi iniciado
-                    }
+                    Write-Log "SUCESSO: $computer - Instalação GoTo iniciada"
+                    $successCount++
                 } else {
                     Write-Host "❌ FALHA (Código: $($process.ExitCode))" -ForegroundColor Red
                     Write-Log "FALHA: $computer - Código de saída: $($process.ExitCode)"
@@ -334,7 +259,6 @@ try {
             } catch {
                 Write-Host "💥 ERRO: $($_.Exception.Message)" -ForegroundColor Red
                 Write-Log "ERRO: $computer - $($_.Exception.Message)"
-                Write-Log "ERRO Detalhado: $($_.Exception.StackTrace)"
                 $errorCount++
             }
         } else {
@@ -348,7 +272,6 @@ try {
     Write-Host ""
     Write-Host "💥 ERRO CRÍTICO: $($_.Exception.Message)" -ForegroundColor Red
     Write-Log "ERRO CRÍTICO: $($_.Exception.Message)"
-    Write-Log "STACK TRACE: $($_.Exception.StackTrace)"
 }
 
 # 6. RESUMO FINAL
