@@ -135,7 +135,52 @@ function Install-GoToLocal {
     }
 }
 
-# Função para transferir arquivos para máquinas remotas (ÁREA DE TRABALHO CORRETA)
+# Função para obter Desktop do usuário atual na máquina remota
+function Get-RemoteUserDesktop {
+    param([string]$ComputerName)
+    
+    try {
+        # Tentar obter o usuário logado via WMI
+        $loggedInUser = Get-WmiObject -Class Win32_ComputerSystem -ComputerName $ComputerName | Select-Object -ExpandProperty UserName
+        
+        if ($loggedInUser) {
+            # Extrair apenas o nome do usuário (remover domínio se existir)
+            $userName = $loggedInUser.Split('\')[-1]
+            $userDesktopPath = "\\$ComputerName\C$\Users\$userName\Desktop"
+            
+            if (Test-Path $userDesktopPath) {
+                Write-Log "Desktop do usuário encontrado: $userDesktopPath"
+                return $userDesktopPath
+            }
+        }
+        
+        # Se não encontrou via WMI, tentar métodos alternativos
+        # Listar todas as pastas de usuário e verificar qual tem Desktop
+        $usersPath = "\\$ComputerName\C$\Users"
+        if (Test-Path $usersPath) {
+            $userFolders = Get-ChildItem $usersPath -Directory | Where-Object { 
+                $_.Name -notin @('Public', 'Default', 'All Users') -and
+                (Test-Path "$usersPath\$($_.Name)\Desktop")
+            }
+            
+            foreach ($userFolder in $userFolders) {
+                $desktopPath = "$usersPath\$($userFolder.Name)\Desktop"
+                if (Test-Path $desktopPath) {
+                    Write-Log "Desktop encontrado para usuário: $($userFolder.Name)"
+                    return $desktopPath
+                }
+            }
+        }
+        
+        return $null
+        
+    } catch {
+        Write-Log "ERRO ao buscar Desktop do usuário em $ComputerName : $($_.Exception.Message)"
+        return $null
+    }
+}
+
+# Função para transferir arquivos para máquinas remotas (DESKTOP DO USUÁRIO)
 function Transfer-FilesToRemote {
     param([string]$ComputerName)
     
@@ -152,40 +197,41 @@ function Transfer-FilesToRemote {
         Write-Host "   📤 Copiando para Programas..." -ForegroundColor Gray
         Copy-Item "$ProgramasDir\GoToSetup.exe" "$remoteProgramasDir\GoToSetup.exe" -Force -ErrorAction Stop
         
-        # AGORA COPIAR PARA A ÁREA DE TRABALHO (MÉTODO SIMPLIFICADO)
-        Write-Host "   🖥️  Copiando para Área de Trabalho..." -ForegroundColor Gray
+        # AGORA COPIAR PARA O DESKTOP DO USUÁRIO ATUAL
+        Write-Host "   🖥️  Buscando Desktop do usuário..." -ForegroundColor Gray
         
-        # Tentar caminhos diretos da Área de Trabalho
-        $desktopPaths = @(
-            "\\$ComputerName\C$\Users\Public\Desktop",
-            "\\$ComputerName\C$\Users\Administrator\Desktop", 
-            "\\$ComputerName\C$\Windows\System32\config\systemprofile\Desktop"
-        )
+        $userDesktopPath = Get-RemoteUserDesktop -ComputerName $ComputerName
         
-        $desktopCopied = $false
-        
-        foreach ($desktopPath in $desktopPaths) {
-            if (Test-Path $desktopPath -ErrorAction SilentlyContinue) {
-                try {
-                    Copy-Item "$ProgramasDir\GoToSetup.exe" "$desktopPath\GoToSetup.exe" -Force -ErrorAction Stop
-                    if (Test-Path "$desktopPath\GoToSetup.exe") {
-                        Write-Host "   ✅ Copiado para Área de Trabalho" -ForegroundColor Green
-                        Write-Log "SUCESSO: Arquivo copiado para $desktopPath"
-                        $desktopCopied = $true
-                        break
-                    }
-                } catch {
-                    Write-Log "AVISO: Não foi possível copiar para $desktopPath - $($_.Exception.Message)"
+        if ($userDesktopPath -and (Test-Path $userDesktopPath)) {
+            Write-Host "   📋 Copiando para Desktop do usuário..." -ForegroundColor Gray
+            Copy-Item "$ProgramasDir\GoToSetup.exe" "$userDesktopPath\GoToSetup.exe" -Force -ErrorAction Stop
+            
+            if (Test-Path "$userDesktopPath\GoToSetup.exe") {
+                Write-Host "   ✅ Copiado para Desktop do usuário" -ForegroundColor Green
+                Write-Log "SUCESSO: Arquivo copiado para $userDesktopPath"
+            } else {
+                Write-Host "   ⚠ Não foi possível copiar para Desktop do usuário" -ForegroundColor Yellow
+                Write-Log "AVISO: Falha ao copiar para Desktop do usuário"
+            }
+        } else {
+            # Fallback: tentar Desktop público
+            $publicDesktop = "\\$ComputerName\C$\Users\Public\Desktop"
+            if (Test-Path $publicDesktop) {
+                Write-Host "   📋 Copiando para Desktop público..." -ForegroundColor Gray
+                Copy-Item "$ProgramasDir\GoToSetup.exe" "$publicDesktop\GoToSetup.exe" -Force -ErrorAction Stop
+                
+                if (Test-Path "$publicDesktop\GoToSetup.exe") {
+                    Write-Host "   ✅ Copiado para Desktop público" -ForegroundColor Green
+                    Write-Log "SUCESSO: Arquivo copiado para Desktop público"
                 }
+            } else {
+                Write-Host "   ⚠ Desktop não encontrado" -ForegroundColor Yellow
+                Write-Log "AVISO: Nenhum Desktop encontrado para cópia"
             }
         }
         
         # Verificar se pelo menos o arquivo foi copiado para Programas
         if (Test-Path "$remoteProgramasDir\GoToSetup.exe") {
-            if (-not $desktopCopied) {
-                Write-Host "   ⚠ Copiado apenas para Programas" -ForegroundColor Yellow
-                Write-Log "AVISO: Arquivo copiado apenas para Programas em $ComputerName"
-            }
             Write-Log "SUCESSO: Arquivo transferido para $ComputerName"
             return $true
         } else {
@@ -246,7 +292,7 @@ try {
     # Perguntar se deseja continuar com transferência remota
     Write-Host ""
     Write-Host "⏸️  Deseja transferir o instalador para outras máquinas?" -ForegroundColor Yellow
-    Write-Host "   (O arquivo será copiado para C:\Programas\ e Área de Trabalho)" -ForegroundColor Gray
+    Write-Host "   (O arquivo será copiado para C:\Programas\ e Desktop do usuário)" -ForegroundColor Gray
     $continuar = Read-Host "Digite 'S' para continuar ou 'N' para parar (S/N)"
     
     if ($continuar -notmatch '^[Ss]$') {
@@ -356,7 +402,7 @@ if ($successCount -eq $computers.Count) {
 Write-Host ""
 Write-Host "💡 Os arquivos foram copiados para:" -ForegroundColor Cyan
 Write-Host "   • C:\Programas\GoToSetup.exe" -ForegroundColor Cyan
-Write-Host "   • Área de Trabalho\GoToSetup.exe" -ForegroundColor Cyan
+Write-Host "   • Desktop do usuário\GoToSetup.exe" -ForegroundColor Cyan
 Write-Host "💡 Nas máquinas remotas, execute manualmente o instalador quando necessário" -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 Write-Host ""
