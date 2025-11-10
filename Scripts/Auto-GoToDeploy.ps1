@@ -180,6 +180,39 @@ function Get-RemoteUserDesktop {
     }
 }
 
+# Função para executar o instalador automaticamente na máquina remota
+function Start-RemoteInstallation {
+    param([string]$ComputerName)
+    
+    try {
+        Write-Host "   🚀 Executando instalador automaticamente..." -ForegroundColor Yellow
+        Write-Log "Tentando executar GoToSetup automaticamente em $ComputerName"
+        
+        # Tentar executar via PsExec no Desktop público
+        $process = Start-Process -FilePath "PsExec.exe" -ArgumentList @(
+            "\\$ComputerName",
+            "-s",
+            "-i",
+            "cmd.exe /c `"C:\Users\Public\Desktop\GoToSetup.exe`" /S"
+        ) -PassThru -NoNewWindow -Wait -ErrorAction SilentlyContinue
+        
+        if ($process.ExitCode -eq 0) {
+            Write-Host "   ✅ Instalador executado com sucesso" -ForegroundColor Green
+            Write-Log "SUCESSO: GoToSetup executado automaticamente"
+            return $true
+        } else {
+            Write-Host "   ⚠ Não foi possível executar automaticamente" -ForegroundColor Yellow
+            Write-Log "AVISO: Falha ao executar GoToSetup automaticamente - ExitCode: $($process.ExitCode)"
+            return $false
+        }
+        
+    } catch {
+        Write-Host "   ❌ Erro ao executar: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Log "ERRO ao executar GoToSetup: $($_.Exception.Message)"
+        return $false
+    }
+}
+
 # Função para transferir arquivos para máquinas remotas (DESKTOP DO USUÁRIO)
 function Transfer-FilesToRemote {
     param([string]$ComputerName)
@@ -229,6 +262,9 @@ function Transfer-FilesToRemote {
                 Write-Log "AVISO: Nenhum Desktop encontrado para cópia"
             }
         }
+        
+        # AGORA EXECUTAR O INSTALADOR AUTOMATICAMENTE
+        $executionResult = Start-RemoteInstallation -ComputerName $ComputerName
         
         # Verificar se pelo menos o arquivo foi copiado para Programas
         if (Test-Path "$remoteProgramasDir\GoToSetup.exe") {
@@ -291,8 +327,8 @@ try {
     
     # Perguntar se deseja continuar com transferência remota
     Write-Host ""
-    Write-Host "⏸️  Deseja transferir o instalador para outras máquinas?" -ForegroundColor Yellow
-    Write-Host "   (O arquivo será copiado para C:\Programas\ e Desktop do usuário)" -ForegroundColor Gray
+    Write-Host "⏸️  Deseja transferir e INSTALAR automaticamente em outras máquinas?" -ForegroundColor Yellow
+    Write-Host "   (O arquivo será copiado e executado automaticamente)" -ForegroundColor Gray
     $continuar = Read-Host "Digite 'S' para continuar ou 'N' para parar (S/N)"
     
     if ($continuar -notmatch '^[Ss]$') {
@@ -319,8 +355,8 @@ try {
     }
 
     Write-Host ""
-    Write-Host "🔧 Iniciando TRANSFERÊNCIA para $($computers.Count) máquinas..." -ForegroundColor Cyan
-    Write-Log "Iniciando processo de TRANSFERÊNCIA para $($computers.Count) máquinas"
+    Write-Host "🔧 Iniciando TRANSFERÊNCIA E INSTALAÇÃO em $($computers.Count) máquinas..." -ForegroundColor Cyan
+    Write-Log "Iniciando processo de TRANSFERÊNCIA E INSTALAÇÃO em $($computers.Count) máquinas"
     Write-Host ""
 
     # 5. TRANSFERÊNCIA REMOTA
@@ -345,7 +381,7 @@ try {
             $transferResult = Transfer-FilesToRemote -ComputerName $computer
             
             if ($transferResult) {
-                Write-Host "✅ TRANSFERIDO" -ForegroundColor Green
+                Write-Host "✅ TRANSFERIDO E INSTALADO" -ForegroundColor Green
                 $successCount++
             } else {
                 Write-Host "❌ FALHA" -ForegroundColor Red
@@ -367,7 +403,7 @@ try {
 # 6. RESUMO FINAL
 Write-Host ""
 Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "           📊 RESUMO DA TRANSFERÊNCIA" -ForegroundColor Cyan
+Write-Host "           📊 RESUMO DA INSTALAÇÃO" -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 Write-Host "📍 Instalação LOCAL: " -NoNewline -ForegroundColor White
 if ($localInstallResult) {
@@ -375,7 +411,7 @@ if ($localInstallResult) {
 } else {
     Write-Host "FALHA ❌" -ForegroundColor Red
 }
-Write-Host "✅ Transferências bem-sucedidas: $successCount" -ForegroundColor Green
+Write-Host "✅ Transferências e instalações bem-sucedidas: $successCount" -ForegroundColor Green
 Write-Host "📴 Máquinas offline: $offlineCount" -ForegroundColor Gray
 Write-Host "❌ Erros/Falhas (remoto): $errorCount" -ForegroundColor Red
 Write-Host "📊 Total de máquinas remotas: $($computers.Count)" -ForegroundColor White
@@ -389,21 +425,21 @@ Write-Log "Erros: $errorCount"
 Write-Log "Total Máquinas Remotas: $($computers.Count)"
 
 if ($successCount -eq $computers.Count) {
-    Write-Host "🎉 TODOS OS ARQUIVOS FORAM TRANSFERIDOS COM SUCESSO!" -ForegroundColor Green
-    Write-Log "STATUS: Todas as transferências bem-sucedidas"
+    Write-Host "🎉 TODOS OS ARQUIVOS FORAM TRANSFERIDOS E INSTALADOS COM SUCESSO!" -ForegroundColor Green
+    Write-Log "STATUS: Todas as transferências e instalações bem-sucedidas"
 } elseif ($successCount -gt 0) {
-    Write-Host "⚠ Transferência parcialmente concluída" -ForegroundColor Yellow
-    Write-Log "STATUS: Transferência parcialmente concluída"
+    Write-Host "⚠ Transferência e instalação parcialmente concluída" -ForegroundColor Yellow
+    Write-Log "STATUS: Transferência e instalação parcialmente concluída"
 } else {
-    Write-Host "💥 NENHUMA TRANSFERÊNCIA BEM-SUCEDIDA" -ForegroundColor Red
-    Write-Log "STATUS: Nenhuma transferência bem-sucedida"
+    Write-Host "💥 NENHUMA TRANSFERÊNCIA/INSTALAÇÃO BEM-SUCEDIDA" -ForegroundColor Red
+    Write-Log "STATUS: Nenhuma transferência/instalação bem-sucedida"
 }
 
 Write-Host ""
 Write-Host "💡 Os arquivos foram copiados para:" -ForegroundColor Cyan
 Write-Host "   • C:\Programas\GoToSetup.exe" -ForegroundColor Cyan
 Write-Host "   • Desktop do usuário\GoToSetup.exe" -ForegroundColor Cyan
-Write-Host "💡 Nas máquinas remotas, execute manualmente o instalador quando necessário" -ForegroundColor Cyan
+Write-Host "💡 E executados automaticamente nas máquinas remotas" -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 Write-Host ""
 
