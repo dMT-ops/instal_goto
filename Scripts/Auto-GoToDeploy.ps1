@@ -10,6 +10,7 @@ $LogFile = "C:\GoToInstall.log"
 $successComputers = @()
 $failedComputers = @()
 $offlineComputers = @()
+$alreadyInstalledComputers = @()
 
 # Função de log
 function Write-Log {
@@ -17,6 +18,72 @@ function Write-Log {
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
     "$timestamp - $Message" | Out-File $LogFile -Append
     Write-Host "$timestamp - $Message" -ForegroundColor Gray
+}
+
+# Função para verificar se GoTo já está instalado
+function Test-GoToInstalled {
+    param([string]$ComputerName)
+    
+    try {
+        # Método 1: Verificar nos programas instalados via registro
+        $registryPaths = @(
+            "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+            "SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+        )
+        
+        foreach ($registryPath in $registryPaths) {
+            $regPath = "\\$ComputerName\HKLM\$registryPath"
+            try {
+                $installedPrograms = Get-ChildItem "Registry::$regPath" -ErrorAction SilentlyContinue
+                foreach ($program in $installedPrograms) {
+                    $displayName = $program.GetValue("DisplayName")
+                    if ($displayName -like "*GoTo*" -or $displayName -like "*LogMeIn*") {
+                        Write-Log "GoTo encontrado via registro: $displayName em $ComputerName"
+                        return $true
+                    }
+                }
+            } catch {
+                # Continua para próxima verificação
+            }
+        }
+        
+        # Método 2: Verificar arquivos de programa
+        $programFilesPaths = @(
+            "\\$ComputerName\C$\Program Files",
+            "\\$ComputerName\C$\Program Files (x86)"
+        )
+        
+        $gotoFolders = @("*GoTo*", "*LogMeIn*")
+        
+        foreach ($programPath in $programFilesPaths) {
+            if (Test-Path $programPath) {
+                foreach ($folderPattern in $gotoFolders) {
+                    $matchingFolders = Get-ChildItem -Path $programPath -Directory -Filter $folderPattern -ErrorAction SilentlyContinue
+                    if ($matchingFolders) {
+                        Write-Log "Pasta GoTo encontrada: $($matchingFolders[0].Name) em $ComputerName"
+                        return $true
+                    }
+                }
+            }
+        }
+        
+        # Método 3: Verificar processos em execução
+        try {
+            $processes = Get-Process -ComputerName $ComputerName -Name "*goto*","*logmein*" -ErrorAction SilentlyContinue
+            if ($processes) {
+                Write-Log "Processo GoTo em execução encontrado em $ComputerName"
+                return $true
+            }
+        } catch {
+            # Process check failed, continue
+        }
+        
+        return $false
+        
+    } catch {
+        Write-Log "ERRO na verificação de instalação em $ComputerName : $($_.Exception.Message)"
+        return $false
+    }
 }
 
 # Função para transferir e instalar remotamente
@@ -130,15 +197,27 @@ try {
             Write-Host "[Online] " -NoNewline -ForegroundColor Green
             Write-Log "$computer - Máquina online"
             
-            # Tentar instalação remota
-            $installResult = Install-GoToRemote -ComputerName $computer
+            # VERIFICAR SE JÁ ESTÁ INSTALADO
+            Write-Host "[Verificando Instalação...] " -NoNewline -ForegroundColor Gray
+            $isAlreadyInstalled = Test-GoToInstalled -ComputerName $computer
             
-            if ($installResult) {
-                Write-Host "✅ SUCESSO" -ForegroundColor Green
-                $successComputers += $computer
+            if ($isAlreadyInstalled) {
+                Write-Host "📦 JÁ INSTALADO" -ForegroundColor Blue
+                Write-Log "GoTo já está instalado em $computer - Pulando instalação"
+                $alreadyInstalledComputers += $computer
             } else {
-                Write-Host "❌ FALHA" -ForegroundColor Red
-                $failedComputers += $computer
+                Write-Host "[Não Encontrado] " -NoNewline -ForegroundColor Yellow
+                
+                # Tentar instalação remota
+                $installResult = Install-GoToRemote -ComputerName $computer
+                
+                if ($installResult) {
+                    Write-Host "✅ SUCESSO" -ForegroundColor Green
+                    $successComputers += $computer
+                } else {
+                    Write-Host "❌ FALHA" -ForegroundColor Red
+                    $failedComputers += $computer
+                }
             }
         } else {
             Write-Host "📴 OFFLINE" -ForegroundColor Gray
@@ -163,6 +242,7 @@ Write-Host "===============================================" -ForegroundColor Cy
 Write-Host ""
 Write-Host "📈 RESUMO GERAL:" -ForegroundColor White
 Write-Host "   ✅ Sucesso: $($successComputers.Count)" -ForegroundColor Green
+Write-Host "   📦 Já Instalado: $($alreadyInstalledComputers.Count)" -ForegroundColor Blue
 Write-Host "   ❌ Falhas: $($failedComputers.Count)" -ForegroundColor Red
 Write-Host "   📴 Offline: $($offlineComputers.Count)" -ForegroundColor Gray
 Write-Host "   📊 Total: $($computers.Count)" -ForegroundColor White
@@ -173,6 +253,15 @@ if ($successComputers.Count -gt 0) {
     Write-Host "✅ MÁQUINAS INSTALADAS COM SUCESSO ($($successComputers.Count)):" -ForegroundColor Green
     foreach ($computer in $successComputers) {
         Write-Host "   ✓ $computer" -ForegroundColor Green
+    }
+}
+
+# Detalhes - JÁ INSTALADAS
+if ($alreadyInstalledComputers.Count -gt 0) {
+    Write-Host ""
+    Write-Host "📦 MÁQUINAS COM GOTO JÁ INSTALADO ($($alreadyInstalledComputers.Count)):" -ForegroundColor Blue
+    foreach ($computer in $alreadyInstalledComputers) {
+        Write-Host "   📦 $computer" -ForegroundColor Blue
     }
 }
 
@@ -201,6 +290,7 @@ Write-Host "===============================================" -ForegroundColor Cy
 # Log do resumo final
 Write-Log "=== RELATÓRIO FINAL ==="
 Write-Log "Sucesso: $($successComputers.Count) - $($successComputers -join ', ')"
+Write-Log "Já Instalado: $($alreadyInstalledComputers.Count) - $($alreadyInstalledComputers -join ', ')"
 Write-Log "Falhas: $($failedComputers.Count) - $($failedComputers -join ', ')"
 Write-Log "Offline: $($offlineComputers.Count) - $($offlineComputers -join ', ')"
 Write-Log "Total: $($computers.Count)"
