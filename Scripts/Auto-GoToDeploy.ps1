@@ -135,6 +135,68 @@ function Install-GoToLocal {
     }
 }
 
+# Função para executar instalação remota CORRIGIDA
+function Install-GoToRemote {
+    param([string]$ComputerName)
+    
+    try {
+        Write-Log "Iniciando instalação remota em: $ComputerName"
+        
+        # MÉTODO 1: Tentar com PsExec (versão corrigida)
+        Write-Host "   🔧 Tentando método PsExec..." -ForegroundColor Gray
+        
+        # Capturar a saída do PsExec para análise
+        $psexecOutput = & "PsExec.exe" "\\$ComputerName" "-s" "-h" "-d" "-c" "-f" "`"$ProgramasDir\GoToSetup.exe`"" "/S" 2>&1
+        
+        Write-Log "Saída do PsExec: $psexecOutput"
+        
+        # Verificar se o PsExec indicou sucesso
+        if ($LASTEXITCODE -eq 0 -or $psexecOutput -match "started with process ID") {
+            Write-Host "   ✅ Instalação iniciada com PsExec" -ForegroundColor Green
+            Write-Log "SUCESSO: Instalação remota iniciada via PsExec"
+            return $true
+        }
+        
+        # MÉTODO 2: Tentar com Invoke-Command
+        Write-Host "   🔧 Tentando método Invoke-Command..." -ForegroundColor Gray
+        try {
+            $copyResult = Copy-Item "$ProgramasDir\GoToSetup.exe" "\\$ComputerName\C$\Temp\GoToSetup.exe" -Force -ErrorAction Stop
+            if ($copyResult) {
+                $installResult = Invoke-Command -ComputerName $ComputerName -ScriptBlock {
+                    Start-Process "C:\Temp\GoToSetup.exe" -ArgumentList "/S" -Wait -PassThru
+                } -ErrorAction Stop
+                
+                if ($installResult.ExitCode -eq 0) {
+                    Write-Host "   ✅ Instalação via Invoke-Command" -ForegroundColor Green
+                    Write-Log "SUCESSO: Instalação remota via Invoke-Command"
+                    return $true
+                }
+            }
+        } catch {
+            Write-Log "Falha no Invoke-Command: $($_.Exception.Message)"
+        }
+        
+        # MÉTODO 3: Tentar com WMIC
+        Write-Host "   🔧 Tentando método WMIC..." -ForegroundColor Gray
+        try {
+            $wmicResult = WMIC /node:$ComputerName process call create "`"C:\Programas\GoToSetup.exe`" /S"
+            if ($wmicResult -match "ProcessId") {
+                Write-Host "   ✅ Instalação via WMIC" -ForegroundColor Green
+                Write-Log "SUCESSO: Instalação remota via WMIC"
+                return $true
+            }
+        } catch {
+            Write-Log "Falha no WMIC: $($_.Exception.Message)"
+        }
+        
+        return $false
+        
+    } catch {
+        Write-Log "ERRO na instalação remota em $ComputerName : $($_.Exception.Message)"
+        return $false
+    }
+}
+
 # INÍCIO
 Clear-Host
 Write-Host "===============================================" -ForegroundColor Cyan
@@ -210,7 +272,7 @@ try {
     Write-Log "Iniciando processo de instalação REMOTA em $($computers.Count) máquinas"
     Write-Host ""
 
-    # 5. INSTALAÇÃO REMOTA - VERSÃO SIMPLIFICADA
+    # 5. INSTALAÇÃO REMOTA - VERSÃO CORRIGIDA
     $successCount = 0
     $offlineCount = 0
     $errorCount = 0
@@ -228,37 +290,14 @@ try {
             Write-Host "[Online] " -NoNewline -ForegroundColor Green
             Write-Log "$computer - Máquina online"
             
-            try {
-                Write-Host "[Instalando...] " -NoNewline -ForegroundColor Gray
-                Write-Log "$computer - Iniciando instalação com PsExec"
-                
-                # Instalação silenciosa com PsExec - versão simplificada
-                $process = Start-Process -FilePath "PsExec.exe" -ArgumentList @(
-                    "\\$computer",
-                    "-s",
-                    "-h",
-                    "-d",  # Não espera o processo terminar
-                    "-c",
-                    "-f",
-                    "`"$ProgramasDir\GoToSetup.exe`"",
-                    "/S"
-                ) -PassThru -NoNewWindow -Wait -ErrorAction Stop
-                
-                Write-Log "$computer - PsExec finalizado com código: $($process.ExitCode)"
-                
-                # Se PsExec retornou 0, consideramos sucesso (mesmo que seja PID)
-                if ($process.ExitCode -eq 0) {
-                    Write-Host "✅ INSTALAÇÃO INICIADA" -ForegroundColor Green
-                    Write-Log "SUCESSO: $computer - Instalação GoTo iniciada"
-                    $successCount++
-                } else {
-                    Write-Host "❌ FALHA (Código: $($process.ExitCode))" -ForegroundColor Red
-                    Write-Log "FALHA: $computer - Código de saída: $($process.ExitCode)"
-                    $errorCount++
-                }
-            } catch {
-                Write-Host "💥 ERRO: $($_.Exception.Message)" -ForegroundColor Red
-                Write-Log "ERRO: $computer - $($_.Exception.Message)"
+            # Tentar instalação remota
+            $installResult = Install-GoToRemote -ComputerName $computer
+            
+            if ($installResult) {
+                Write-Host "✅ SUCESSO" -ForegroundColor Green
+                $successCount++
+            } else {
+                Write-Host "❌ FALHA" -ForegroundColor Red
                 $errorCount++
             }
         } else {
@@ -285,7 +324,7 @@ if ($localInstallResult) {
 } else {
     Write-Host "FALHA ❌" -ForegroundColor Red
 }
-Write-Host "✅ Instalações remotas iniciadas: $successCount" -ForegroundColor Green
+Write-Host "✅ Instalações remotas bem-sucedidas: $successCount" -ForegroundColor Green
 Write-Host "📴 Máquinas offline: $offlineCount" -ForegroundColor Gray
 Write-Host "❌ Erros/Falhas (remoto): $errorCount" -ForegroundColor Red
 Write-Host "📊 Total de máquinas remotas: $($computers.Count)" -ForegroundColor White
@@ -299,8 +338,8 @@ Write-Log "Erros: $errorCount"
 Write-Log "Total Máquinas Remotas: $($computers.Count)"
 
 if ($successCount -eq $computers.Count) {
-    Write-Host "🎉 TODAS AS INSTALAÇÕES REMOTAS FORAM INICIADAS!" -ForegroundColor Green
-    Write-Log "STATUS: Todas as instalações remotas iniciadas com sucesso"
+    Write-Host "🎉 TODAS AS INSTALAÇÕES REMOTAS FORAM BEM-SUCEDIDAS!" -ForegroundColor Green
+    Write-Log "STATUS: Todas as instalações remotas bem-sucedidas"
 } elseif ($successCount -gt 0) {
     Write-Host "⚠ Instalação remota parcialmente concluída" -ForegroundColor Yellow
     Write-Log "STATUS: Instalação remota parcialmente concluída"
