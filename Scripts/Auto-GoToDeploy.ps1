@@ -26,53 +26,79 @@ function Test-GoToInstalled {
     
     foreach ($path in $installPaths) {
         if (Test-Path $path) {
+            Write-Log "GoTo encontrado em: $path"
             return $true
         }
     }
     return $false
 }
 
-# Função para executar o GoTo Meeting
+# Função para encontrar e executar o GoTo Meeting
 function Start-GoToMeeting {
     Write-Host "🚀 Iniciando GoTo Meeting..." -ForegroundColor Yellow
     Write-Log "Tentando iniciar GoTo Meeting"
     
+    # Lista de possíveis caminhos do executável
     $gotoPaths = @(
         "C:\Program Files\GoTo\G2M\G2MStart.exe",
         "C:\Program Files (x86)\GoTo\G2M\G2MStart.exe",
         "$env:PROGRAMFILES\GoTo\G2M\G2MStart.exe",
         "$env:PROGRAMFILES(X86)\GoTo\G2M\G2MStart.exe",
-        "$env:LOCALAPPDATA\GoTo\G2M\G2MStart.exe"
+        "$env:LOCALAPPDATA\GoTo\G2M\G2MStart.exe",
+        "C:\Users\*\AppData\Local\GoTo\G2M\G2MStart.exe"
     )
     
-    foreach ($path in $gotoPaths) {
-        if (Test-Path $path) {
-            try {
-                Write-Host "   📍 Executando: $path" -ForegroundColor Gray
-                Write-Log "Executando GoTo: $path"
-                Start-Process -FilePath $path -ErrorAction Stop
-                Write-Host "   ✅ GoTo Meeting iniciado com sucesso!" -ForegroundColor Green
-                Write-Log "SUCESSO: GoTo Meeting iniciado"
-                return $true
-            } catch {
-                Write-Host "   ❌ Erro ao iniciar: $($_.Exception.Message)" -ForegroundColor Red
-                Write-Log "ERRO ao iniciar GoTo: $($_.Exception.Message)"
+    # Buscar em todos os caminhos possíveis
+    foreach ($pathPattern in $gotoPaths) {
+        $resolvedPaths = Get-ChildItem -Path $pathPattern -ErrorAction SilentlyContinue
+        foreach ($path in $resolvedPaths) {
+            if (Test-Path $path.FullName) {
+                try {
+                    Write-Host "   📍 Executando: $($path.FullName)" -ForegroundColor Gray
+                    Write-Log "Executando GoTo: $($path.FullName)"
+                    
+                    # Executar diretamente sem confirmações
+                    $process = Start-Process -FilePath $path.FullName -PassThru -ErrorAction Stop
+                    
+                    # Aguardar um pouco para ver se iniciou
+                    Start-Sleep -Seconds 3
+                    
+                    if (-not $process.HasExited) {
+                        Write-Host "   ✅ GoTo Meeting iniciado com sucesso!" -ForegroundColor Green
+                        Write-Log "SUCESSO: GoTo Meeting iniciado - PID: $($process.Id)"
+                        return $true
+                    } else {
+                        Write-Host "   ⚠ GoTo abriu e fechou rapidamente" -ForegroundColor Yellow
+                        Write-Log "AVISO: GoTo abriu e fechou rapidamente"
+                    }
+                } catch {
+                    Write-Host "   ❌ Erro ao iniciar: $($_.Exception.Message)" -ForegroundColor Red
+                    Write-Log "ERRO ao iniciar GoTo: $($_.Exception.Message)"
+                }
             }
         }
     }
     
-    # Tentar abrir via protocolo URL
-    try {
-        Write-Host "   🌐 Tentando abrir via URL..." -ForegroundColor Gray
-        Start-Process "g2mstart:"
-        Write-Host "   ✅ Comando de inicialização enviado" -ForegroundColor Green
-        Write-Log "GoTo iniciado via protocolo URL"
-        return $true
-    } catch {
-        Write-Host "   ❌ Não foi possível iniciar o GoTo Meeting" -ForegroundColor Red
-        Write-Log "FALHA: Não foi possível iniciar GoTo Meeting"
-        return $false
+    # Tentativa alternativa: procurar em todo o sistema
+    Write-Host "   🔍 Procurando GoTo no sistema..." -ForegroundColor Gray
+    $foundExe = Get-ChildItem -Path "C:\" -Recurse -Filter "G2MStart.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($foundExe) {
+        try {
+            Write-Host "   📍 Encontrado em: $($foundExe.FullName)" -ForegroundColor Gray
+            Write-Log "GoTo encontrado via busca: $($foundExe.FullName)"
+            Start-Process -FilePath $foundExe.FullName -ErrorAction Stop
+            Write-Host "   ✅ GoTo Meeting iniciado!" -ForegroundColor Green
+            Write-Log "SUCESSO: GoTo iniciado via busca"
+            return $true
+        } catch {
+            Write-Host "   ❌ Erro ao iniciar via busca" -ForegroundColor Red
+            Write-Log "ERRO ao iniciar via busca: $($_.Exception.Message)"
+        }
     }
+    
+    Write-Host "   ❌ Não foi possível iniciar o GoTo Meeting automaticamente" -ForegroundColor Red
+    Write-Log "FALHA: Não foi possível iniciar GoTo Meeting automaticamente"
+    return $false
 }
 
 # Função para instalar localmente
@@ -90,17 +116,17 @@ function Install-GoToLocal {
     }
     
     try {
-        Write-Host "📦 Executando instalação local..." -ForegroundColor Yellow
+        Write-Host "📦 Executando instalação local SILENCIOSA..." -ForegroundColor Yellow
         Write-Log "Executando instalação local: $localSetup /S"
         
-        # Executar instalação local silenciosa
+        # Executar instalação local completamente silenciosa
         $process = Start-Process -FilePath $localSetup -ArgumentList "/S" -Wait -PassThru -NoNewWindow
         
         Write-Log "Instalação local finalizada com código: $($process.ExitCode)"
         
-        # Aguardar um pouco para a instalação completar
+        # Aguardar um pouco mais para a instalação completar totalmente
         Write-Host "   ⏳ Aguardando finalização da instalação..." -ForegroundColor Gray
-        Start-Sleep -Seconds 10
+        Start-Sleep -Seconds 15
         
         # Verificar se foi instalado com sucesso
         $isInstalled = Test-GoToInstalled
@@ -109,9 +135,12 @@ function Install-GoToLocal {
             Write-Host "✅ GoTo instalado com SUCESSO nesta máquina" -ForegroundColor Green
             Write-Log "SUCESSO: Instalação local concluída"
             
-            # AGORA EXECUTA O GOTO PARA CONFIRMAR
+            # Aguardar mais um pouco para o sistema registrar tudo
+            Start-Sleep -Seconds 5
+            
+            # AGORA EXECUTA O GOTO AUTOMATICAMENTE
             Write-Host ""
-            Write-Host "🔍 CONFIRMANDO INSTALAÇÃO..." -ForegroundColor Cyan
+            Write-Host "🔍 INICIANDO GOTO AUTOMATICAMENTE..." -ForegroundColor Cyan
             $executionResult = Start-GoToMeeting
             
             if ($executionResult) {
@@ -119,6 +148,7 @@ function Install-GoToLocal {
                 Write-Log "CONFIRMAÇÃO: GoTo instalado e executado com sucesso"
             } else {
                 Write-Host "⚠ INSTALADO mas não foi possível executar automaticamente" -ForegroundColor Yellow
+                Write-Host "   💡 Tente abrir manualmente o GoTo Meeting" -ForegroundColor Gray
                 Write-Log "AVISO: GoTo instalado mas não executado automaticamente"
             }
             
@@ -170,8 +200,8 @@ try {
     Write-Host "📍 RESULTADO DA INSTALAÇÃO LOCAL: " -NoNewline -ForegroundColor Cyan
     if ($localInstallResult) {
         Write-Host "SUCESSO COMPLETO ✅" -ForegroundColor Green
-        Write-Host "   ✓ GoTo instalado" -ForegroundColor Green
-        Write-Host "   ✓ GoTo executado com sucesso" -ForegroundColor Green
+        Write-Host "   ✓ GoTo instalado silenciosamente" -ForegroundColor Green
+        Write-Host "   ✓ GoTo executado automaticamente" -ForegroundColor Green
     } else {
         Write-Host "FALHA ❌" -ForegroundColor Red
     }
