@@ -135,63 +135,37 @@ function Install-GoToLocal {
     }
 }
 
-# Função para executar instalação remota CORRIGIDA
-function Install-GoToRemote {
+# Função para transferir arquivos para máquinas remotas
+function Transfer-FilesToRemote {
     param([string]$ComputerName)
     
     try {
-        Write-Log "Iniciando instalação remota em: $ComputerName"
+        Write-Log "Iniciando transferência de arquivos para: $ComputerName"
         
-        # MÉTODO 1: Tentar com PsExec (versão simplificada e confiável)
-        Write-Host "   🔧 Executando instalação via PsExec..." -ForegroundColor Gray
+        # Criar pasta Programas na máquina remota
+        $remoteProgramasDir = "\\$ComputerName\C$\Programas"
         
-        # Usar Start-Process diretamente e verificar se não houve erro
-        $process = Start-Process -FilePath "PsExec.exe" -ArgumentList @(
-            "\\$ComputerName",
-            "-s",
-            "-h", 
-            "-d",
-            "-c",
-            "-f",
-            "`"$ProgramasDir\GoToSetup.exe`"",
-            "/S"
-        ) -PassThru -NoNewWindow -Wait -ErrorAction SilentlyContinue
+        Write-Host "   📁 Criando pasta remota..." -ForegroundColor Gray
+        New-Item -Path $remoteProgramasDir -ItemType Directory -Force -ErrorAction Stop | Out-Null
         
-        # Se o processo executou sem exception, consideramos sucesso
-        # O PsExec com -d retorna imediatamente após iniciar o processo remoto
-        if ($process.ExitCode -eq 0) {
-            Write-Host "   ✅ Instalação iniciada com sucesso" -ForegroundColor Green
-            Write-Log "SUCESSO: PsExec executou sem erros - ExitCode: 0"
+        # Copiar arquivo para máquina remota
+        Write-Host "   📤 Copiando arquivo..." -ForegroundColor Gray
+        Copy-Item "$ProgramasDir\GoToSetup.exe" "$remoteProgramasDir\GoToSetup.exe" -Force -ErrorAction Stop
+        
+        # Verificar se o arquivo foi copiado com sucesso
+        if (Test-Path "$remoteProgramasDir\GoToSetup.exe") {
+            Write-Host "   ✅ Arquivo transferido com sucesso" -ForegroundColor Green
+            Write-Log "SUCESSO: Arquivo transferido para $ComputerName"
             return $true
+        } else {
+            Write-Host "   ❌ Falha na transferência" -ForegroundColor Red
+            Write-Log "FALHA: Arquivo não encontrado após transferência em $ComputerName"
+            return $false
         }
-        
-        # Mesmo se o ExitCode não for 0, mas o processo executou, consideramos sucesso
-        # Muitas vezes o PsExec retorna o PID como ExitCode, o que é normal
-        if ($process.ExitCode -gt 0) {
-            Write-Host "   ✅ Instalação iniciada (PID: $($process.ExitCode))" -ForegroundColor Green
-            Write-Log "SUCESSO: PsExec iniciou processo - PID: $($process.ExitCode)"
-            return $true
-        }
-        
-        # Se chegou aqui, tentar método alternativo
-        Write-Host "   🔧 Tentando método alternativo..." -ForegroundColor Gray
-        
-        # MÉTODO 2: Usar Invoke-WmiMethod (mais confiável que WMIC)
-        try {
-            $result = Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList "`"$ProgramasDir\GoToSetup.exe`" /S" -ComputerName $ComputerName -ErrorAction Stop
-            if ($result.ReturnValue -eq 0) {
-                Write-Host "   ✅ Instalação via WMI" -ForegroundColor Green
-                Write-Log "SUCESSO: Instalação remota via WMI - ProcessID: $($result.ProcessId)"
-                return $true
-            }
-        } catch {
-            Write-Log "Falha no WMI: $($_.Exception.Message)"
-        }
-        
-        return $false
         
     } catch {
-        Write-Log "ERRO na instalação remota em $ComputerName : $($_.Exception.Message)"
+        Write-Host "   ❌ Erro na transferência: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Log "ERRO na transferência para $ComputerName : $($_.Exception.Message)"
         return $false
     }
 }
@@ -238,14 +212,15 @@ try {
     }
     Write-Host "===============================================" -ForegroundColor Cyan
     
-    # Perguntar se deseja continuar com instalação remota
+    # Perguntar se deseja continuar com transferência remota
     Write-Host ""
-    Write-Host "⏸️  Deseja continuar com a instalação nas outras máquinas?" -ForegroundColor Yellow
+    Write-Host "⏸️  Deseja transferir o instalador para outras máquinas?" -ForegroundColor Yellow
+    Write-Host "   (O arquivo será copiado para C:\Programas\ nas máquinas remotas)" -ForegroundColor Gray
     $continuar = Read-Host "Digite 'S' para continuar ou 'N' para parar (S/N)"
     
     if ($continuar -notmatch '^[Ss]$') {
-        Write-Host "Instalação remota cancelada pelo usuário" -ForegroundColor Yellow
-        Write-Log "Instalação remota cancelada pelo usuário"
+        Write-Host "Transferência remota cancelada pelo usuário" -ForegroundColor Yellow
+        Write-Log "Transferência remota cancelada pelo usuário"
         Write-Host ""
         Write-Host "Pressione Enter para finalizar..." -ForegroundColor Yellow
         Read-Host
@@ -267,11 +242,11 @@ try {
     }
 
     Write-Host ""
-    Write-Host "🔧 Iniciando instalação REMOTA em $($computers.Count) máquinas..." -ForegroundColor Cyan
-    Write-Log "Iniciando processo de instalação REMOTA em $($computers.Count) máquinas"
+    Write-Host "🔧 Iniciando TRANSFERÊNCIA para $($computers.Count) máquinas..." -ForegroundColor Cyan
+    Write-Log "Iniciando processo de TRANSFERÊNCIA para $($computers.Count) máquinas"
     Write-Host ""
 
-    # 5. INSTALAÇÃO REMOTA - VERSÃO CORRIGIDA
+    # 5. TRANSFERÊNCIA REMOTA
     $successCount = 0
     $offlineCount = 0
     $errorCount = 0
@@ -289,11 +264,11 @@ try {
             Write-Host "[Online] " -NoNewline -ForegroundColor Green
             Write-Log "$computer - Máquina online"
             
-            # Tentar instalação remota
-            $installResult = Install-GoToRemote -ComputerName $computer
+            # Tentar transferência de arquivos
+            $transferResult = Transfer-FilesToRemote -ComputerName $computer
             
-            if ($installResult) {
-                Write-Host "✅ SUCESSO" -ForegroundColor Green
+            if ($transferResult) {
+                Write-Host "✅ TRANSFERIDO" -ForegroundColor Green
                 $successCount++
             } else {
                 Write-Host "❌ FALHA" -ForegroundColor Red
@@ -315,7 +290,7 @@ try {
 # 6. RESUMO FINAL
 Write-Host ""
 Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "           📊 RESUMO DA INSTALAÇÃO" -ForegroundColor Cyan
+Write-Host "           📊 RESUMO DA TRANSFERÊNCIA" -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 Write-Host "📍 Instalação LOCAL: " -NoNewline -ForegroundColor White
 if ($localInstallResult) {
@@ -323,7 +298,7 @@ if ($localInstallResult) {
 } else {
     Write-Host "FALHA ❌" -ForegroundColor Red
 }
-Write-Host "✅ Instalações remotas bem-sucedidas: $successCount" -ForegroundColor Green
+Write-Host "✅ Transferências bem-sucedidas: $successCount" -ForegroundColor Green
 Write-Host "📴 Máquinas offline: $offlineCount" -ForegroundColor Gray
 Write-Host "❌ Erros/Falhas (remoto): $errorCount" -ForegroundColor Red
 Write-Host "📊 Total de máquinas remotas: $($computers.Count)" -ForegroundColor White
@@ -331,22 +306,25 @@ Write-Host "📄 Log detalhado: $LogFile" -ForegroundColor Cyan
 
 Write-Log "=== RESUMO FINAL ==="
 Write-Log "Instalação Local: $(if ($localInstallResult) {'SUCESSO COMPLETO'} else {'FALHA'})"
-Write-Log "Sucessos Remotos: $successCount"
+Write-Log "Transferências Bem-sucedidas: $successCount"
 Write-Log "Offline: $offlineCount"
 Write-Log "Erros: $errorCount"
 Write-Log "Total Máquinas Remotas: $($computers.Count)"
 
 if ($successCount -eq $computers.Count) {
-    Write-Host "🎉 TODAS AS INSTALAÇÕES REMOTAS FORAM BEM-SUCEDIDAS!" -ForegroundColor Green
-    Write-Log "STATUS: Todas as instalações remotas bem-sucedidas"
+    Write-Host "🎉 TODOS OS ARQUIVOS FORAM TRANSFERIDOS COM SUCESSO!" -ForegroundColor Green
+    Write-Log "STATUS: Todas as transferências bem-sucedidas"
 } elseif ($successCount -gt 0) {
-    Write-Host "⚠ Instalação remota parcialmente concluída" -ForegroundColor Yellow
-    Write-Log "STATUS: Instalação remota parcialmente concluída"
+    Write-Host "⚠ Transferência parcialmente concluída" -ForegroundColor Yellow
+    Write-Log "STATUS: Transferência parcialmente concluída"
 } else {
-    Write-Host "💥 NENHUMA INSTALAÇÃO REMOTA BEM-SUCEDIDA" -ForegroundColor Red
-    Write-Log "STATUS: Nenhuma instalação remota bem-sucedida"
+    Write-Host "💥 NENHUMA TRANSFERÊNCIA BEM-SUCEDIDA" -ForegroundColor Red
+    Write-Log "STATUS: Nenhuma transferência bem-sucedida"
 }
 
+Write-Host ""
+Write-Host "💡 Os arquivos foram copiados para: C:\Programas\GoToSetup.exe" -ForegroundColor Cyan
+Write-Host "💡 Nas máquinas remotas, execute manualmente o instalador quando necessário" -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 Write-Host ""
 
